@@ -1,0 +1,66 @@
+# ─── Dependencies ──────────────────────────────
+node_modules/
+.pnpm-store/
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# ─── Build output ──────────────────────────────
+dist/
+build/
+.vite/
+*.tsbuildinfo
+.cache/
+
+# ─── Environment & secrets ─────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.aws/
+credentials
+
+# ─── Logs ──────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─── Test & coverage ───────────────────────────
+coverage/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ─── Fine-tuning artefacts (large; tracked with DVC / MLflow instead) ──
+finetune/adapters/
+finetune/data/generated/
+finetune/data/verified/
+mlruns/
+wandb/
+*.safetensors
+*.bin
+*.ckpt
+
+# ─── Infrastructure ────────────────────────────
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+
+# ─── Editors & OS ──────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
