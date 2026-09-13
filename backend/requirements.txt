@@ -1,0 +1,10 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+pyyaml>=6
+c7n>=0.9.40
+boto3>=1.34
+
+# tests
+pytest>=8
+httpx>=0.27
