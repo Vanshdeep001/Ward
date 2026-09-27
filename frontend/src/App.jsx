@@ -4,6 +4,7 @@ import Layout from './components/Layout.jsx'
 import { Loading } from './components/ui.jsx'
 
 // Each page is its own chunk; Recharts only loads on the pages that draw charts.
+const Landing = lazy(() => import('./pages/Landing.jsx'))
 const Dashboard = lazy(() => import('./pages/Dashboard.jsx'))
 const Copilot = lazy(() => import('./pages/Copilot.jsx'))
 const Rules = lazy(() => import('./pages/Rules.jsx'))
@@ -14,6 +15,7 @@ const Detective = lazy(() => import('./pages/Detective.jsx'))
 const Guardian = lazy(() => import('./pages/Guardian.jsx'))
 const Architect = lazy(() => import('./pages/Architect.jsx'))
 const Accuracy = lazy(() => import('./pages/Accuracy.jsx'))
+const Connect = lazy(() => import('./pages/Connect.jsx'))
 
 const page = (Page) => (
   <Suspense fallback={<Loading />}>
@@ -24,8 +26,10 @@ const page = (Page) => (
 export default function App() {
   return (
     <Routes>
+      {/* The landing page stands on its own — no sidebar, no data fetching. */}
+      <Route index element={page(Landing)} />
       <Route element={<Layout />}>
-        <Route index element={page(Dashboard)} />
+        <Route path="app" element={page(Dashboard)} />
         <Route path="copilot" element={page(Copilot)} />
         <Route path="rules" element={page(Rules)} />
         <Route path="health" element={page(RuleHealth)} />
@@ -35,6 +39,7 @@ export default function App() {
         <Route path="guardian" element={page(Guardian)} />
         <Route path="architect" element={page(Architect)} />
         <Route path="accuracy" element={page(Accuracy)} />
+        <Route path="connect" element={page(Connect)} />
         <Route path="*" element={<p className="py-20 text-center text-sm text-slate-500">Page not found.</p>} />
       </Route>
     </Routes>

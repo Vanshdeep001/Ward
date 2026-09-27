@@ -24,6 +24,12 @@ build/
 *.key
 .aws/
 credentials
+# The local Fernet key for encrypting stored ExternalIds; production sets WARD_SECRET_KEY instead.
+.ward-secret
+
+# ─── Local database ────────────────────────────
+*.db
+*.sqlite3
 
 # ─── Logs ──────────────────────────────────────
 logs/

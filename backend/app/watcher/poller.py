@@ -42,11 +42,17 @@ def poll(client: ClientFactory) -> Snapshot:
 class LiveInventory:
     """Polls on demand, at most once per `min_interval`, keeping every sweep for time-travel simulation."""
 
-    def __init__(self, region: str, min_interval: timedelta = timedelta(minutes=15)):
-        import boto3
+    def __init__(self, region: str, min_interval: timedelta = timedelta(minutes=15), session_factory=None):
+        """`session_factory` supplies a session for a connected account; without one, Ward falls back
+        to the ambient credential chain, which is only right for a single-account self-hosted install."""
+        if session_factory is None:
+            import boto3
 
-        session = boto3.Session(region_name=region)
-        self._client = lambda service: session.client(service)
+            session = boto3.Session(region_name=region)
+            session_factory = lambda: session  # noqa: E731
+
+        # Resolved per call, so refreshed assume-role credentials are picked up automatically.
+        self._client = lambda service: session_factory().client(service)
         self._history = SnapshotHistory()
         self._min_interval = min_interval
 

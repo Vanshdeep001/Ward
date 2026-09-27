@@ -2,6 +2,9 @@ const inr = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR',
 
 export const rupees = (n) => inr.format(Math.round(n))
 
+// For tight spots — chips, tiles — where ₹47,556 would wrap.
+export const rupeesShort = (n) => (n >= 1000 ? `₹${(n / 1000).toFixed(1)}k` : `₹${Math.round(n)}`)
+
 export const hoursSince = (iso) => (Date.now() - new Date(iso).getTime()) / 3_600_000
 
 export function ago(iso) {

@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Bell, Blocks, Flame, LayoutDashboard, MapPin, MessageSquare, Radar, Search, Server, ShieldAlert, ShieldCheck,
   Sparkles, Target,
 } from 'lucide-react'
-import { useAlerts, useCosts, useFindings, useHealth, useResources, useRules } from '../api/hooks.js'
+import { useAlerts, useConnection, useCosts, useFindings, useHealth, useResources, useRules } from '../api/hooks.js'
+import { rupeesShort } from '../lib/format.js'
+import { WardMark } from './ui.jsx'
 import { USE_MOCKS } from '../api/client.js'
 import EmergencyModal from './EmergencyModal.jsx'
 import ErrorBoundary from './ErrorBoundary.jsx'
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
-const compactRupees = (n) => (n >= 1000 ? `₹${(n / 1000).toFixed(1)}k` : `₹${Math.round(n)}`)
 
 export default function Layout() {
   const { pathname } = useLocation()
@@ -22,6 +23,7 @@ export default function Layout() {
   const { data: costs } = useCosts()
   const { data: findings } = useFindings()
   const { data: rules } = useRules()
+  const { connected } = useConnection()
   const [ask, setAsk] = useState('')
   const [showEmergency, setShowEmergency] = useState(false)
   const [emergency, setEmergency] = useState(() => new URLSearchParams(window.location.search).has('emergency'))
@@ -47,7 +49,7 @@ export default function Layout() {
   const openAlerts = alerts?.filter((a) => a.status === 'open').length ?? 0
 
   const pinned = [
-    { to: '/', label: 'Home', icon: LayoutDashboard, end: true, chip: costs && `${compactRupees(week / 7)}/d` },
+    { to: '/app', label: 'Home', icon: LayoutDashboard, end: true, chip: costs && `${rupeesShort(week / 7)}/d` },
     { to: '/copilot', label: 'Copilot', icon: MessageSquare },
     { to: '/rules', label: 'Guardrails', icon: ShieldCheck, chip: rules && `${activeRules} on` },
     { to: '/detective', label: 'Detective', icon: Search, chip: costs && weekChange > 0 && `↑${weekChange}%`, hot: weekChange > 25 },
@@ -71,13 +73,13 @@ export default function Layout() {
 
   return (
     <div className={`shell flex h-full ${emergency ? 'shell-emergency' : ''}`}>
-      <aside className="lift-text hidden w-[16.5rem] shrink-0 flex-col px-3 pb-3 pt-4 text-white md:flex">
+      <aside className="lift-text glass-frame scroll-quiet m-2 hidden w-66 shrink-0 flex-col overflow-y-auto rounded-[1.25rem] px-3 pb-3 pt-3.5 text-white md:flex">
         {/* Brand */}
         <div className="flex items-center justify-between px-1">
-          <div className="flex items-center gap-2.5">
+          <Link to="/" title="Back to the landing page" className="flex items-center gap-2.5 transition hover:opacity-90">
             <WardMark emergency={emergency} />
             <span className="font-display text-[1.4rem] font-semibold tracking-tight">Ward</span>
-          </div>
+          </Link>
           <span className="glass inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-white/90">
             <MapPin size={11} /> Mumbai
           </span>
@@ -101,7 +103,8 @@ export default function Layout() {
         </form>
 
         {/* Pinned tiles */}
-        <div className="mt-4 grid grid-cols-3 gap-2">
+        <p className="mt-5 px-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">Pinned</p>
+        <div className="mt-2 grid grid-cols-3 gap-2">
           {pinned.map(({ to, label, icon: Icon, end, chip, dot, hot }) => (
             <NavLink
               key={to}
@@ -137,8 +140,8 @@ export default function Layout() {
           ))}
         </div>
 
-        <div className="mx-2 mt-5 border-t border-white/15" />
-        <nav className="mt-3 space-y-0.5">
+        <p className="mt-6 px-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">Account</p>
+        <nav className="mt-2 space-y-0.5">
           {account.map(({ to, label, icon: Icon, count, hot }) => (
             <NavLink
               key={to}
@@ -169,27 +172,41 @@ export default function Layout() {
         </nav>
 
         {/* Spaces, like the coloured dots at the bottom of Arc's sidebar */}
-        <div className="mt-auto space-y-2.5">
+        <div className="mt-auto space-y-2.5 pt-6">
+          {costs && <BudgetMeter costs={costs} />}
           <div className="glass rounded-2xl p-1.5">
             <div className="grid grid-cols-2 gap-1">
               <SpaceButton active={!emergency} dot="bg-arc-300" label="Watching" onClick={() => emergency && setShowEmergency(true)} />
               <SpaceButton active={emergency} dot="bg-coral-300" label="Emergency" icon={Flame} onClick={() => setShowEmergency(true)} />
             </div>
           </div>
-          <div className="flex items-center justify-between px-2 text-[11px] font-medium text-white/75">
-            <span className="flex items-center gap-2">
-              <span className={`h-1.5 w-1.5 rounded-full ${isError ? 'bg-coral-300' : health ? 'animate-breathe bg-emerald-300' : 'bg-white/40'}`} />
-              {isError ? 'Backend offline' : `Checking every ${emergency ? 5 : 15} min`}
+          {/* Which account Ward is actually reading — the demo one, or theirs. */}
+          <Link
+            to="/connect"
+            className="flex items-center justify-between gap-2 rounded-xl px-2 py-1.5 text-[11px] font-medium text-white/75 transition hover:bg-white/10 hover:text-white"
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isError ? 'bg-coral-300' : health ? 'animate-breathe bg-emerald-300' : 'bg-white/40'}`} />
+              <span className="truncate">
+                {isError ? 'Backend offline'
+                  : connected ? `${connected.awsAccountId} · ${connected.region}`
+                  : 'Demo account'}
+              </span>
             </span>
-            {USE_MOCKS && <span className="rounded-md bg-black/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">mock</span>}
-          </div>
+            <span className="shrink-0 rounded-md bg-black/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+              {USE_MOCKS ? 'mock' : connected ? 'live' : 'connect'}
+            </span>
+          </Link>
+          <p className="px-2 text-[10.5px] text-white/50">
+            {isError ? 'Start the API on :8000' : `Checking every ${emergency ? 5 : 15} min`}
+          </p>
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col md:py-2 md:pr-2">
         {/* Mobile top bar */}
         <div className="lift-text flex items-center gap-3 px-4 pb-3 pt-3 text-white md:hidden">
-          <WardMark emergency={emergency} />
+          <Link to="/" title="Back to the landing page"><WardMark emergency={emergency} /></Link>
           <nav className="-mx-1 flex flex-1 gap-1 overflow-x-auto">
             {[...pinned, ...account].map(({ to, label, end }) => (
               <NavLink
@@ -210,7 +227,7 @@ export default function Layout() {
         </div>
 
         {/* The page, with arc.net's scalloped seam along its top edge */}
-        <div className="wavy-top relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-b-none bg-paper md:rounded-b-[1.25rem]">
+        <div className="cloud-top relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-b-none bg-paper md:rounded-b-[1.25rem]">
           {emergency && (
             <div className="relative z-10 shrink-0">
               <div className="flex flex-wrap items-center justify-between gap-2 bg-coral-500 px-5 pb-2 pt-4 text-xs font-semibold text-white">
@@ -246,6 +263,40 @@ export default function Layout() {
   )
 }
 
+// The month at a glance: spend so far as a filled bar, with a tick where the current burn
+// rate says the month will land.
+function BudgetMeter({ costs }) {
+  const spentPct = Math.round((costs.monthToDate / costs.budget) * 100)
+  const projectedPct = Math.round((costs.projectedMonthEnd / costs.budget) * 100)
+  const over = projectedPct > 100
+  const now = new Date()
+  const daysLeft = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() - now.getDate()
+
+  return (
+    <div className="glass rounded-2xl px-3 py-2.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/60">Month to date</span>
+        <span className="font-display text-[15px] font-semibold tabular-nums">{rupeesShort(costs.monthToDate)}</span>
+      </div>
+      <div className="relative mt-2 h-1.5 overflow-hidden rounded-full bg-black/25">
+        <div
+          className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-coral-300' : 'bg-white/85'}`}
+          style={{ width: `${Math.min(spentPct, 100)}%` }}
+        />
+        <span
+          aria-hidden
+          title="Projected month end"
+          className="absolute top-0 h-full w-px bg-white"
+          style={{ left: `${Math.min(projectedPct, 100)}%` }}
+        />
+      </div>
+      <p className="mt-1.5 text-[10.5px] font-semibold text-white/60">
+        {spentPct}% of {rupeesShort(costs.budget)} · {over ? `tracking ${projectedPct}%` : `${daysLeft}d left`}
+      </p>
+    </div>
+  )
+}
+
 function SpaceButton({ active, dot, label, icon: Icon, onClick }) {
   return (
     <button
@@ -261,25 +312,3 @@ function SpaceButton({ active, dot, label, icon: Icon, onClick }) {
   )
 }
 
-// Sticker-style mark, after Arc's logo: a scalloped-top shield with a white outline and a warm core.
-function WardMark({ emergency }) {
-  return (
-    <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden className="drop-shadow-[0_2px_3px_rgb(10_8_60/0.35)]">
-      <defs>
-        <linearGradient id="ward-core" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor={emergency ? '#ffd29a' : '#ff9a8b'} />
-          <stop offset="55%" stopColor={emergency ? '#ff8a65' : '#ff6f91'} />
-          <stop offset="100%" stopColor={emergency ? '#e8463f' : '#7b61ff'} />
-        </linearGradient>
-      </defs>
-      <path
-        d="M16 3c1.3 1.1 2.7 1.1 4 0 1.3 1.1 2.7 1.1 4 0 1 .9 2.1 1.1 3.3 1v10.5c0 6.7-4.8 11.1-11.3 14.2C9.5 25.6 4.7 21.2 4.7 14.5V4c1.2.1 2.3-.1 3.3-1 1.3 1.1 2.7 1.1 4 0 1.3 1.1 2.7 1.1 4 0Z"
-        fill="url(#ward-core)"
-        stroke="#fff"
-        strokeWidth="2.2"
-        strokeLinejoin="round"
-      />
-      <path d="m11 15.8 3.4 3.4 6.8-7" fill="none" stroke="#fff" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}

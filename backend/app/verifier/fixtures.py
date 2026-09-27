@@ -11,7 +11,8 @@ from typing import Literal
 from app.inventory import shapes
 from app.inventory.shapes import hours_ago
 from app.verifier.intents import (
-    Ec2RuntimeIntent, EbsUnattachedIntent, OpenPortIntent, RdsPublicIntent, RequireTagIntent,
+    Ec2RuntimeIntent, EbsUnattachedIntent, InstanceTypeIntent, OpenPortIntent, RdsPublicIntent, RegionIntent,
+    RequireTagIntent,
 )
 
 FixtureKind = Literal['positive', 'negative', 'edge']
@@ -72,8 +73,11 @@ def _require_tag(intent: RequireTagIntent, now: datetime) -> list[Fixture]:
 
     fx = [
         Fixture('pos-no-tags', 'positive', 'no tags at all', rtype, make('i-pos1' if rtype == 'aws.ec2' else 'vol-pos1', None), True),
-        Fixture('pos-other-tags', 'positive', f'has Project tag but no {tag}', rtype,
-                make('i-pos2' if rtype == 'aws.ec2' else 'vol-pos2', {'Project': 'attendance'}), True),
+        # The filler tag must not be the tag under test, or "must have a Project tag" is handed a
+        # resource that already has one and told to flag it.
+        Fixture('pos-other-tags', 'positive', f'carries another tag but no {tag}', rtype,
+                make('i-pos2' if rtype == 'aws.ec2' else 'vol-pos2',
+                     {'Project' if tag != 'Project' else 'Service': 'attendance'}), True),
         Fixture('neg-tagged', 'negative', f'{tag}=riya', rtype, make('i-neg1' if rtype == 'aws.ec2' else 'vol-neg1', {tag: 'riya'}), False),
         Fixture('neg-tagged-plus', 'negative', f'{tag}=team plus other tags', rtype,
                 make('i-neg2' if rtype == 'aws.ec2' else 'vol-neg2', {tag: 'team', 'Project': 'x'}), False),
@@ -137,8 +141,46 @@ def _sg_open_port(intent: OpenPortIntent, _: datetime) -> list[Fixture]:
     ]
 
 
+def _instance_type(intent: InstanceTypeIntent, now: datetime) -> list[Fixture]:
+    allowed = intent.allowed[0]
+    banned = 'm5.4xlarge' if allowed != 'm5.4xlarge' else 'c5.9xlarge'
+    return [
+        Fixture('pos-banned-type', 'positive', f'{banned} running — not on the allowlist', 'aws.ec2',
+                shapes.ec2('i-pos1', banned, launched=hours_ago(now, 3)), True),
+        Fixture('pos-large-gpu', 'positive', 'p3.2xlarge running — not on the allowlist', 'aws.ec2',
+                shapes.ec2('i-pos2', 'p3.2xlarge', launched=hours_ago(now, 1)), True),
+        Fixture('neg-allowed-type', 'negative', f'{allowed} running — allowed', 'aws.ec2',
+                shapes.ec2('i-neg1', allowed, launched=hours_ago(now, 30)), False),
+        Fixture('neg-allowed-again', 'negative', f'another {allowed}, long-running but allowed', 'aws.ec2',
+                shapes.ec2('i-neg2', allowed, launched=hours_ago(now, 400)), False),
+        # The mistake this catches: matching on a prefix, so t3.micro accidentally permits t3.2xlarge.
+        Fixture('edge-same-family', 'edge', 'a larger instance in an allowed family', 'aws.ec2',
+                shapes.ec2('i-edge1', f'{allowed.split(".")[0]}.2xlarge', launched=hours_ago(now, 5)),
+                f'{allowed.split(".")[0]}.2xlarge' not in intent.allowed),
+    ]
+
+
+def _region(intent: RegionIntent, now: datetime) -> list[Fixture]:
+    home, away = intent.region, 'us-east-1' if intent.region != 'us-east-1' else 'eu-west-1'
+    return [
+        Fixture('pos-other-region', 'positive', f'instance running in {away}', 'aws.ec2',
+                shapes.ec2('i-pos1', 't3.small', launched=hours_ago(now, 5), region=away), True),
+        Fixture('pos-far-region', 'positive', 'instance running in sa-east-1', 'aws.ec2',
+                shapes.ec2('i-pos2', 't3.micro', launched=hours_ago(now, 30), region='sa-east-1'), True),
+        Fixture('neg-home-region', 'negative', f'instance running in {home}', 'aws.ec2',
+                shapes.ec2('i-neg1', 't3.small', launched=hours_ago(now, 5), region=home), False),
+        Fixture('neg-home-region-old', 'negative', f'long-running instance in {home}', 'aws.ec2',
+                shapes.ec2('i-neg2', 'm5.large', launched=hours_ago(now, 400), region=home), False),
+        # The mistake this catches: flagging a stopped instance elsewhere, which costs storage, not compute.
+        Fixture('edge-stopped-elsewhere', 'edge', f'stopped instance in {away}', 'aws.ec2',
+                shapes.ec2('i-edge1', 't3.small', launched=hours_ago(now, 100), running=False, region=away), False),
+    ]
+
+
 _BUILDERS = {
     Ec2RuntimeIntent: _ec2_runtime,
+    InstanceTypeIntent: _instance_type,
+    RegionIntent: _region,
     RequireTagIntent: _require_tag,
     EbsUnattachedIntent: _ebs_unattached,
     RdsPublicIntent: _rds_public,

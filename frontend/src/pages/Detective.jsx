@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Search } from 'lucide-react'
+import { ArrowRight, Clock, Search } from 'lucide-react'
 import { api } from '../api/client.js'
 import { rupees } from '../lib/format.js'
 import { Button, Card, HeroButton, PageHeader, Pill } from '../components/ui.jsx'
@@ -42,7 +42,19 @@ export default function Detective() {
         </div>
       )}
 
-      {report && (
+      {/* A newly connected account has nothing to compare against yet — say so rather than
+          reporting every resource as new. */}
+      {report?.insufficientHistory && (
+        <div className="mb-6 flex flex-wrap items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50/60 px-4 py-3.5">
+          <Clock size={16} className="shrink-0 text-amber-600" />
+          <p className="min-w-0 flex-1 text-[13.5px] text-amber-900">{report.note}</p>
+          <Link to="/guardian" className="shrink-0 text-[12px] font-bold text-amber-800 underline-offset-2 hover:underline">
+            See what Guardian found instead
+          </Link>
+        </div>
+      )}
+
+      {report && !report.insufficientHistory && (
         <div className="space-y-6">
           <Card className="p-5">
             <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">

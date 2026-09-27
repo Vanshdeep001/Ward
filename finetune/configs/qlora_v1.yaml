@@ -1,0 +1,41 @@
+# The run that goes in the report: 7B on a rented A40 / RTX 4090 (~$0.40/h, 1.5-2 hours).
+# These cards have bfloat16, which is more stable than fp16 for training — do not copy the T4 config.
+#
+# SRS §9.7. Ablations worth running against this: r=8 and r=32, and the 1.5B at the same settings.
+
+base_model: Qwen/Qwen2.5-Coder-7B-Instruct
+
+quantization:
+  load_in_4bit: true
+  bnb_4bit_compute_dtype: bfloat16
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+
+lora:
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  bias: none
+  task_type: CAUSAL_LM
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+training:
+  num_train_epochs: 3
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 8      # effective batch 16
+  learning_rate: 2.0e-4
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.03
+  max_seq_length: 2048
+  gradient_checkpointing: true
+  fp16: false
+  bf16: true
+  optim: paged_adamw_8bit
+  logging_steps: 10
+  eval_strategy: steps
+  eval_steps: 50
+  save_strategy: steps
+  save_steps: 50
+  save_total_limit: 2
+  load_best_model_at_end: true
+  report_to: none

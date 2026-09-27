@@ -41,7 +41,20 @@ class OpenPortIntent(BaseModel):
     port: int = Field(default=22, ge=0, le=65535)
 
 
+class InstanceTypeIntent(BaseModel):
+    """Only these instance types may run — the allowlist that keeps a lab account off large hardware."""
+    kind: Literal['instance-type'] = 'instance-type'
+    allowed: list[str] = Field(min_length=1, examples=[['t3.micro', 't2.micro']])
+
+
+class RegionIntent(BaseModel):
+    """Flag running instances outside the region the account is supposed to use."""
+    kind: Literal['region'] = 'region'
+    region: str = 'ap-south-1'
+
+
 Intent = Annotated[
-    Union[Ec2RuntimeIntent, RequireTagIntent, EbsUnattachedIntent, RdsPublicIntent, OpenPortIntent],
+    Union[Ec2RuntimeIntent, RequireTagIntent, EbsUnattachedIntent, RdsPublicIntent, OpenPortIntent, RegionIntent,
+          InstanceTypeIntent],
     Field(discriminator='kind'),
 ]

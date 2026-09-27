@@ -10,13 +10,39 @@ async function http(method, path, body) {
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   })
-  if (!res.ok) throw new Error(`${method} ${path} → ${res.status}`)
-  return res.json()
+  if (!res.ok) {
+    // FastAPI puts the reason in `detail`; surface it so the UI can show why, not just that it failed.
+    const detail = await res.json().catch(() => null)
+    const reason = describe(detail?.detail) ?? `${method} ${path} → ${res.status}`
+    throw Object.assign(new Error(reason), { status: res.status, detail: detail?.detail })
+  }
+  return res.status === 204 ? null : res.json()
+}
+
+// FastAPI's `detail` is a string for errors we raise, and a list of field errors for validation
+// failures (422). Turn the list into a sentence naming the field, e.g. "budget_inr: must be greater than 0".
+function describe(detail) {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail) && detail.length) {
+    return detail
+      .map((e) => `${(e.loc ?? []).filter((p) => p !== 'body').join('.') || 'request'}: ${String(e.msg ?? '').replace(/^Input should be /, 'must be ')}`)
+      .join('; ')
+  }
+  if (detail && typeof detail.message === 'string') return detail.message
+  return null
 }
 
 const pick = (mockCall, method, path, body) => (USE_MOCKS ? mockCall() : http(method, path, body))
 
 export const api = {
+  // Accounts have no mock: connecting is only meaningful against the real backend.
+  accounts: () => (USE_MOCKS ? Promise.resolve({ items: [] }) : http('GET', '/accounts')),
+  setupStatus: () => http('GET', '/accounts/setup'),
+  createAccount: (body) => http('POST', '/accounts', body),
+  onboarding: (id) => http('GET', `/accounts/${id}/onboarding`),
+  connectAccount: (id, roleArn) => http('POST', `/accounts/${id}/connect`, { role_arn: roleArn }),
+  disconnectAccount: (id) => http('DELETE', `/accounts/${id}`),
+
   health: () => pick(() => mock.health(), 'GET', '/health'),
   resources: () => pick(() => mock.resources(), 'GET', '/resources'),
   alerts: () => pick(() => mock.alerts(), 'GET', '/alerts'),

@@ -1,3 +1,60 @@
+import { Link } from 'react-router-dom'
+import { ArrowRight } from 'lucide-react'
+
+// Sticker-style mark, after Arc's logo: a scalloped-top shield with a white outline and a warm core.
+export function WardMark({ emergency, size = 32 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden className="drop-shadow-[0_2px_3px_rgb(10_8_60/0.35)]">
+      <defs>
+        <linearGradient id={`ward-core-${emergency ? 'e' : 'n'}`} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor={emergency ? '#ffd29a' : '#ff9a8b'} />
+          <stop offset="55%" stopColor={emergency ? '#ff8a65' : '#ff6f91'} />
+          <stop offset="100%" stopColor={emergency ? '#e8463f' : '#7b61ff'} />
+        </linearGradient>
+      </defs>
+      <path
+        d="M16 3c1.3 1.1 2.7 1.1 4 0 1.3 1.1 2.7 1.1 4 0 1 .9 2.1 1.1 3.3 1v10.5c0 6.7-4.8 11.1-11.3 14.2C9.5 25.6 4.7 21.2 4.7 14.5V4c1.2.1 2.3-.1 3.3-1 1.3 1.1 2.7 1.1 4 0 1.3 1.1 2.7 1.1 4 0Z"
+        fill={`url(#ward-core-${emergency ? 'e' : 'n'})`}
+        stroke="#fff"
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+      />
+      <path d="m11 15.8 3.4 3.4 6.8-7" fill="none" stroke="#fff" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+/* A deeper card than the plain Stat tiles: a tinted header well with an eyebrow above a
+   serif title, and a footer that pins to the bottom so panels sitting side by side line up. */
+export function Panel({ eyebrow, title, action, className = '', children }) {
+  return (
+    <section
+      className={`flex h-full flex-col overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgb(15_23_42/0.04),0_20px_44px_-30px_rgb(23_23_60/0.45)] ${className}`}
+    >
+      <header className="flex items-start justify-between gap-4 border-b border-slate-100 bg-gradient-to-b from-slate-50/80 to-white px-5 py-4">
+        <div className="min-w-0">
+          {eyebrow && <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{eyebrow}</p>}
+          <h2 className="mt-1 font-display text-[1.15rem] font-semibold leading-tight text-ink">{title}</h2>
+        </div>
+        {action}
+      </header>
+      {children}
+    </section>
+  )
+}
+
+export function PanelLink({ to, children }) {
+  return (
+    <Link
+      to={to}
+      className="group inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 transition hover:border-arc-200 hover:bg-arc-50 hover:text-arc-700"
+    >
+      {children}
+      <ArrowRight size={11} className="transition group-hover:translate-x-0.5" />
+    </Link>
+  )
+}
+
 export function Card({ className = '', children }) {
   return (
     <div className={`rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgb(15_23_42/0.04)] ${className}`}>
@@ -91,7 +148,8 @@ export function Stat({ label, value, hint, tone = 'slate' }) {
   return (
     <Card className="p-5">
       <p className="text-xs font-semibold text-slate-500">{label}</p>
-      <p className={`mt-2 font-display text-[2rem] font-semibold leading-none tabular-nums ${color}`}>{value}</p>
+      {/* Proportional figures: these sit side by side, so equal-width digits only read loose. */}
+      <p className={`mt-2 font-display text-[2rem] font-semibold leading-none ${color}`}>{value}</p>
       {hint && <p className="mt-2 text-xs text-slate-500">{hint}</p>}
     </Card>
   )
