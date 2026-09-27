@@ -1,8 +1,9 @@
 """Copilot: questions answered from this account's own data (SRS §19).
 
-Deliberately not a language model. Every answer here is computed from the inventory, the rules and the
-alerts, so it cannot invent a number — and intent routing is the part a fine-tuned model replaces
-later, leaving these handlers as the tools it calls.
+The questions with exact answers — spend, the bill's movement, exposure, what is running, the rules —
+are computed from the inventory, the rules and the alerts, so they cannot invent a number. Everything
+else, and any question about one named resource, goes to search (app/rag): the inventory is retrieved
+and the answer is written from what came back, citing the resources it used.
 
 The most important branch is REFUSE: Ward holds read-only credentials, so when it is asked to change
 something it says so and hands over the exact command instead of pretending it acted.
@@ -16,7 +17,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_inventory, get_session
+from app.api.deps import get_inventory, get_search, get_session
+from app.api.search import run_search
 from app.compiler.service import compile_rule
 from app.config import settings
 from app.costs import detective, spend
@@ -25,6 +27,7 @@ from app.guardian import findings as finder
 from app.inventory.pricing import hourly_cost
 from app.inventory.store import InventoryStore, Snapshot
 from app.models import Alert, Rule
+from app.rag.service import SearchService
 from app.simulator.dryrun import summarise
 
 router = APIRouter(tags=['copilot'])
@@ -48,7 +51,8 @@ def _reply(intent: str, text: str, state: dict, **extra) -> dict:
 
 
 @router.post('/chat')
-def chat(req: ChatRequest, inventory: InventoryStore = Depends(get_inventory), session: Session = Depends(get_session)):
+def chat(req: ChatRequest, inventory: InventoryStore = Depends(get_inventory), session: Session = Depends(get_session),
+         search: SearchService = Depends(get_search)):
     text = req.message
     snapshot = inventory.latest()
     now = datetime.now(timezone.utc)
@@ -60,6 +64,12 @@ def chat(req: ChatRequest, inventory: InventoryStore = Depends(get_inventory), s
 
     if MAKE_RULE.search(text):
         return _draft_rule(referent, inventory, state)
+
+    named = _find_resource(snapshot, text)
+    if named is not None:
+        # "What's wrong with algobench?" — a question about one resource, answered from its document.
+        state['referentId'] = named['id']
+        return _search(text, state, session, inventory, search)
 
     if WHY.search(text) and COST.search(text):
         return _explain_bill(inventory, state)
@@ -76,12 +86,28 @@ def chat(req: ChatRequest, inventory: InventoryStore = Depends(get_inventory), s
     if RULES.search(text):
         return _rules(session, state)
 
-    return _reply(
-        'ANSWER',
-        'Ask me about spend (“what is costing the most?”), a change (“why did my bill go up?”), risk '
-        '(“what is exposed?”), or say “create a rule for that” after we talk about a resource.',
-        state,
-    )
+    return _search(text, state, session, inventory, search)
+
+
+def _search(text: str, state: dict, session, inventory, search: SearchService) -> dict:
+    """Retrieval-augmented: the answer is written from the resources that matched, which it cites."""
+    history = state.get('history', [])
+    result = run_search(text, history, session, inventory, search)
+    if not result['sources'] and search.answerer is None and not result['checks']['blocked']:
+        # Nothing matched and there is no model to hold a conversation: say what Ward can answer.
+        return _reply(
+            'ANSWER',
+            'Ask me about spend (“what is costing the most?”), a change (“why did my bill go up?”), risk '
+            '(“what is exposed?”), a resource by name, or say “create a rule for that” after we talk about one.',
+            state,
+        )
+    state['history'] = (history + [{'role': 'user', 'content': text},
+                                   {'role': 'assistant', 'content': result['answer']}])[-6:]
+    cited = [s for s in result['sources'] if s['cited']]
+    if cited or result['sources']:
+        state['referentId'] = (cited or result['sources'])[0]['id']
+    return _reply('SEARCH', result['answer'], state, sources=result['sources'], retriever=result['retriever'],
+                  generator=result['generator'], notice=result['notice'], checks=result['checks'])
 
 
 def _refuse(text: str, referent, state) -> dict:

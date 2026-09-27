@@ -3,11 +3,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field, TypeAdapter, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_inventory, get_session
+from app.api.deps import get_compiler, get_inventory, get_session
 from app.compiler import clarify
 from app.compiler.service import compile_rule, draft_for
 from app.config import settings
@@ -164,10 +165,15 @@ def list_rules(inventory: InventoryStore = Depends(get_inventory), session: Sess
 
 
 @router.post('/compile')
-def compile_rule_endpoint(req: CompileRequest, inventory: InventoryStore = Depends(get_inventory)):
-    """English in, verified policy out — or a question, or an honest failure. Never an HTTP error."""
+def compile_rule_endpoint(req: CompileRequest, inventory: InventoryStore = Depends(get_inventory),
+                          compiler=Depends(get_compiler)):
+    """English in, verified policy out — or a question, an unverified draft, or an honest failure.
+
+    Never an HTTP error. `status` is one of: compiled, unverified, needs-clarification, failed.
+    """
     english = clarify.apply_choices(req.english, req.choices) if req.choices else req.english
-    return compile_rule(english, inventory, settings.region, skip_clarify=req.skip_clarify or bool(req.choices))
+    return compile_rule(english, inventory, settings.region, compiler=compiler,
+                        skip_clarify=req.skip_clarify or bool(req.choices))
 
 
 @router.post('/whatif')
@@ -205,14 +211,21 @@ def _restate(draft, param: str, value: float) -> str:
 
 @router.post('', status_code=201)
 def add_rule(req: CreateRuleRequest, inventory: InventoryStore = Depends(get_inventory),
-             session: Session = Depends(get_session)):
-    """Store a rule — only if its policy passes the verifier for the stated intent."""
+             session: Session = Depends(get_session), compiler=Depends(get_compiler)):
+    """Store a rule — only if its policy passes the verifier for the stated intent.
+
+    An `unverified` draft is refused like any other failure: SRS §4.1 — a policy that has not passed
+    the verifier is never trusted, however plausible it looks.
+    """
     policy_yaml, intent = req.policy_yaml, req.intent
     if policy_yaml is None:
-        result = compile_rule(req.english, inventory, settings.region, skip_clarify=True)
+        result = compile_rule(req.english, inventory, settings.region, compiler=compiler, skip_clarify=True)
         if result['status'] != 'compiled':
-            raise HTTPException(422, {'message': 'Ward could not compile that rule, so nothing was saved.',
-                                      'result': result})
+            message = ('That policy could not be verified, so it was not saved.' if result['status'] == 'unverified'
+                       else 'Ward could not compile that rule, so nothing was saved.')
+            # jsonable_encoder: the result carries datetimes (the dry run's inventoryAsOf), which an
+            # HTTPException detail — serialised with plain json — cannot.
+            raise HTTPException(422, {'message': message, 'result': jsonable_encoder(result)})
         policy_yaml, intent = result['yaml'], TypeAdapter(Intent).validate_python(result['intent'])
 
     try:

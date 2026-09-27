@@ -29,6 +29,8 @@ export default function RiskBoard({ alerts = [], isLoading }) {
       className="lg:col-span-2"
       eyebrow={`${open.length} open · ${byResource.length} resource${byResource.length === 1 ? '' : 's'} · ${alerts.length} in 30 days`}
       title="Live exposure"
+      aura={atRisk ? 'coral' : 'green'}
+      icon={ShieldAlert}
       action={<PanelLink to="/alerts">All alerts</PanelLink>}
     >
       {/* The hero reading: what the open alerts are costing while they stay open. */}

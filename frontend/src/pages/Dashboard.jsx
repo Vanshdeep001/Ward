@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Activity, ArrowRight, Search, Settings2, ShieldAlert, Trash2 } from 'lucide-react'
+import { Activity, ArrowRight, BellRing, PiggyBank, Radar, Search, Settings2, ShieldAlert, Trash2, TrendingUp, Wallet } from 'lucide-react'
 import { useAlerts, useConnection, useCosts, useFindings, useResources } from '../api/hooks.js'
 import ConnectBanner from '../components/ConnectBanner.jsx'
 import RiskBoard from '../components/RiskBoard.jsx'
@@ -48,15 +48,16 @@ export default function Dashboard() {
       </section>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Month to date" value={rupees(c.monthToDate)} hint={`Budget ${rupees(c.budget)}`} />
+        <Stat label="Month to date" value={rupees(c.monthToDate)} hint={`Budget ${rupees(c.budget)}`} icon={Wallet} />
         <Stat
           label="Projected month end"
           value={rupees(c.projectedMonthEnd)}
           hint={`${budgetPct}% of budget, at the last 7 days’ burn rate`}
           tone={budgetPct > 100 ? 'red' : budgetPct > 85 ? 'amber' : 'slate'}
+          icon={TrendingUp}
         />
-        <Stat label="Open alerts" value={openAlerts.length} hint={`${alerts.data?.length ?? 0} in the last 30 days`} tone={openAlerts.length ? 'amber' : 'slate'} />
-        <Stat label="Net saved, 30 days" value={rupees(c.savings.avoided - c.savings.wardCost)} hint={`after Ward’s own ${rupees(c.savings.wardCost)}`} tone="green" />
+        <Stat label="Open alerts" value={openAlerts.length} hint={`${alerts.data?.length ?? 0} in the last 30 days`} tone={openAlerts.length ? 'amber' : 'slate'} icon={BellRing} />
+        <Stat label="Net saved, 30 days" value={rupees(c.savings.avoided - c.savings.wardCost)} hint={`after Ward’s own ${rupees(c.savings.wardCost)}`} tone="green" icon={PiggyBank} />
       </div>
 
       <div className="mt-6 grid items-stretch gap-6 lg:grid-cols-3">
@@ -112,6 +113,8 @@ function GuardianPanel({ findings }) {
     <Panel
       eyebrow="Ranked by impact × confidence"
       title="Guardian"
+      aura="lilac"
+      icon={Radar}
       action={<PanelLink to="/guardian">All</PanelLink>}
     >
       <div className="border-b border-slate-100 bg-gradient-to-b from-violet-50/50 to-transparent px-5 pb-4 pt-4">

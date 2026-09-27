@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  CalendarDays, Check, Cpu, Globe2, HardDrive, HelpCircle, PiggyBank, Plus, Sparkles, Tag, Timer, Wallet, XCircle,
+  AlertTriangle, CalendarDays, Check, Cpu, Globe2, HardDrive, HelpCircle, PiggyBank, Plus, Sparkles, Tag, Timer, Wallet,
+  XCircle,
 } from 'lucide-react'
 import { api } from '../api/client.js'
 import { useActivateRule } from '../api/hooks.js'
@@ -8,6 +9,7 @@ import { applyClarifications } from '../lib/clarify.js'
 import { Card } from './ui.jsx'
 import Clarifier from './Clarifier.jsx'
 import GuardrailCard from './GuardrailCard.jsx'
+import YamlBlock from './YamlBlock.jsx'
 
 const EXAMPLES = [
   'Never let a GPU instance run more than 6 hours',
@@ -217,6 +219,62 @@ export default function RuleComposer({ initialText = '', suggestions = EXAMPLES,
           activated={activate.isSuccess}
         />
       )}
+
+      {result?.status === 'unverified' && <UnverifiedDraft key={result.english} result={result} />}
+    </div>
+  )
+}
+
+/* The model's policy for a sentence Ward's templates can't read. It loads as a real Custodian policy,
+   but nothing independent of the model says what the sentence means, so it can't be verified — and
+   the backend won't store it. What it *can* show is exactly what it would match right now, which is
+   how a person decides whether the model understood them. */
+function UnverifiedDraft({ result }) {
+  const matched = (result.simulation?.policies ?? []).flatMap((p) => p.matched ?? [])
+  return (
+    <div className="overflow-hidden rounded-3xl border border-amber-200 bg-white">
+      <div className="flex items-start gap-3 border-b border-amber-100 bg-amber-50/70 px-5 py-4">
+        <AlertTriangle size={17} className="mt-0.5 shrink-0 text-amber-600" />
+        <div className="min-w-0">
+          <p className="font-display text-[1.1rem] font-semibold text-ink">Unverified draft</p>
+          <p className="mt-1 text-[13px] leading-relaxed text-amber-900">{result.reason}</p>
+        </div>
+      </div>
+
+      <div className="grid gap-4 p-5 md:grid-cols-[1.3fr_1fr]">
+        <div className="rounded-2xl bg-ink p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/40">Drafted by the model</span>
+            <span className="rounded-md bg-white/10 px-1.5 py-0.5 font-mono text-[10px] font-bold text-white/60">{result.compiler}</span>
+          </div>
+          <YamlBlock code={result.yaml} />
+        </div>
+
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">It would match right now</p>
+          {matched.length ? (
+            <ul className="mt-2 divide-y divide-slate-100 rounded-2xl border border-slate-200">
+              {matched.slice(0, 8).map((m) => (
+                <li key={m.id} className="flex items-baseline justify-between gap-3 px-3 py-2 text-[12.5px]">
+                  <span className="min-w-0 truncate text-ink">
+                    {m.name || m.id}
+                    {m.detail && <span className="ml-1.5 font-mono text-[11px] text-slate-400">{m.detail}</span>}
+                  </span>
+                  {m.running_hours != null && <span className="shrink-0 tabular-nums text-slate-500">{m.running_hours}h</span>}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 rounded-2xl border border-slate-200 px-3 py-4 text-[12.5px] text-slate-500">
+              Nothing in your account right now.
+            </p>
+          )}
+          <p className="mt-3 text-[12px] leading-relaxed text-slate-500">
+            If that list isn’t what you meant, rephrase with a resource type and a number — Ward can then build
+            and verify the policy itself.
+          </p>
+        </div>
+      </div>
     </div>
   )
 }

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { AlertTriangle, Check, Copy, Download, ExternalLink, Lock, ShieldCheck, Terminal } from 'lucide-react'
 import { useConnection, useConnectAccount, useCreateAccount, useDisconnectAccount, useSetupStatus } from '../api/hooks.js'
 import { api } from '../api/client.js'
-import { Button, Loading, PageHeader, Panel } from '../components/ui.jsx'
+import { Aura, Button, Loading, PageHeader, Panel } from '../components/ui.jsx'
 
 /* Connecting an account, in the three steps the backend actually has:
    name it → deploy a role → hand back the ARN. Ward issues the ExternalId and bakes it into the
@@ -421,7 +421,7 @@ function Field({ label, children }) {
 
 function Step({ n, title, children, done, disabled }) {
   return (
-    <li className={`rounded-3xl border bg-white p-5 transition ${disabled ? 'border-slate-200/70 opacity-55' : 'border-slate-200'}`}>
+    <li className={`group/aura relative overflow-hidden rounded-3xl border bg-white p-5 transition ${disabled ? 'border-slate-200/70 opacity-55' : 'border-slate-200'}`}>
       <div className="mb-4 flex items-center gap-3">
         <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-[12px] font-bold ${
           done ? 'bg-emerald-500 text-white' : disabled ? 'bg-slate-100 text-slate-400' : 'bg-ink text-white'
@@ -431,6 +431,7 @@ function Step({ n, title, children, done, disabled }) {
         <h2 className="font-display text-[1.15rem] font-semibold text-ink">{title}</h2>
       </div>
       {children}
+      <Aura color={done ? 'green' : 'arc'} />
     </li>
   )
 }

@@ -20,56 +20,11 @@ import random
 from collections import defaultdict
 from pathlib import Path
 
+from prompting import SYSTEM, reference_for  # the one definition of the prompt shape
+
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_IN = ROOT / 'data' / 'verified' / 'pairs.jsonl'
 DEFAULT_OUT = ROOT / 'data' / 'splits'
-
-SYSTEM = (
-    'You write Cloud Custodian policies. Given a rule in English and reference documentation, '
-    'output only valid YAML. No explanation, no markdown fences.'
-)
-
-# Stand-in for Phase 3 retrieval: one chunk per resource type, one per filter type. Same shape the
-# retriever will produce, so the model never sees an input format it wasn't trained on.
-SCHEMA = {
-    'aws.ec2': 'resource: aws.ec2 — EC2 instances. Fields: InstanceId, InstanceType, State.Name '
-               '(running|stopped), LaunchTime, Placement.AvailabilityZone, Tags. Instance age is read '
-               'from the root volume attach time, not LaunchTime.',
-    'aws.ebs': 'resource: aws.ebs — EBS volumes. Fields: VolumeId, Size, State (in-use|available), '
-               'CreateTime, Attachments (empty list means attached to nothing), Tags.',
-    'aws.rds': 'resource: aws.rds — RDS instances. Fields: DBInstanceIdentifier, DBInstanceClass, '
-               'PubliclyAccessible (bool), Engine, Tags.',
-    'aws.security-group': 'resource: aws.security-group — security groups. Fields: GroupId, GroupName, '
-                          'IpPermissions[].FromPort/ToPort, IpRanges[].CidrIp, Ipv6Ranges[].CidrIpv6.',
-}
-FILTERS = {
-    'ec2-runtime': 'filter instance-age — matches on how long an instance has been running. Takes op '
-                   '(greater-than|less-than) and hours or days. Pair it with State.Name: running.',
-    'require-tag': 'filter "tag:<Key>": absent — matches resources missing that tag key. Tag keys are '
-                   'case-sensitive.',
-    'ebs-unattached': 'filter Attachments: [] — matches volumes attached to nothing. Combine with a '
-                      'value filter on CreateTime with value_type: age for a minimum age.',
-    'rds-public': 'filter PubliclyAccessible: true — matches databases reachable from the internet.',
-    'sg-open-port': 'filter type: ingress — takes Ports, Cidr (IPv4) and CidrV6. 0.0.0.0/0 is the whole '
-                    'internet over IPv4; ::/0 is the whole internet over IPv6.',
-    'instance-type': 'filter type: value with key InstanceType and op in/not-in — matches an allowlist '
-                     'of instance types. The match is exact.',
-    'region': 'filter type: value with key Placement.AvailabilityZone and op not-in — availability zones '
-              'are the region plus a letter suffix.',
-}
-
-
-def reference_for(pair: dict) -> str:
-    resource = _resource_of(pair['policy_yaml'])
-    chunks = [SCHEMA.get(resource, ''), FILTERS.get(pair['family'], '')]
-    return '\n\n'.join(c for c in chunks if c)
-
-
-def _resource_of(policy_yaml: str) -> str:
-    for line in policy_yaml.splitlines():
-        if 'resource:' in line:
-            return line.split('resource:', 1)[1].strip()
-    return ''
 
 
 def to_example(pair: dict, with_context: bool) -> dict:
@@ -90,16 +45,20 @@ def to_example(pair: dict, with_context: bool) -> dict:
 
 
 def split_groups(pairs: list[dict], seed: int = 13) -> dict[str, set[str]]:
-    """Assign whole groups to train/val/test, stratified by family so each split sees the same mix."""
-    rng = random.Random(seed)
-    by_family: dict[str, list[str]] = defaultdict(list)
-    for group, family in {(p['group'], p['family']) for p in pairs}:
-        by_family[family].append(group)
+    """Assign whole groups to train/val/test, stratified by family so each split sees the same mix.
+
+    Deterministic across runs: families are visited in sorted order and each gets its own generator
+    seeded by name. An earlier version iterated a set — whose order Python randomises per process —
+    through one shared generator, so every run produced a different split.
+    """
+    by_family: dict[str, set[str]] = defaultdict(set)
+    for p in pairs:
+        by_family[p['family']].add(p['group'])
 
     assignment: dict[str, set[str]] = {'train': set(), 'val': set(), 'test_holdout': set()}
-    for family, groups in by_family.items():
-        groups = sorted(groups)
-        rng.shuffle(groups)
+    for family in sorted(by_family):
+        groups = sorted(by_family[family])
+        random.Random(f'{seed}:{family}').shuffle(groups)  # string seeds are stable across processes
         n = len(groups)
         n_train = max(1, round(n * 0.6))
         n_val = max(1, round(n * 0.1)) if n >= 3 else 0
@@ -109,15 +68,37 @@ def split_groups(pairs: list[dict], seed: int = 13) -> dict[str, set[str]]:
     return assignment
 
 
+def pinned_groups(folder: Path, pairs: list[dict]) -> dict[str, set[str]]:
+    """Rebuild the split a model was trained on, from the files it was trained on.
+
+    What matters for an honest holdout is not byte-identity but membership: the holdout must hold
+    exactly the groups that were in neither train nor val when the model was trained.
+    """
+    def groups_in(name: str) -> set[str]:
+        path = folder / f'{name}.jsonl'
+        if not path.exists():
+            raise SystemExit(f'--keep-from: {path} not found — copy it back from Colab/Drive first.')
+        return {json.loads(line)['meta']['group'] for line in path.read_text(encoding='utf-8').splitlines() if line.strip()}
+
+    train, val = groups_in('train'), groups_in('val')
+    if train & val:
+        raise SystemExit(f'--keep-from: groups in both train and val: {sorted(train & val)}')
+    everything = {p['group'] for p in pairs}
+    return {'train': train, 'val': val, 'test_holdout': everything - train - val}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--pairs', type=Path, default=DEFAULT_IN)
     ap.add_argument('--out', type=Path, default=DEFAULT_OUT)
     ap.add_argument('--no-context', action='store_true', help='train without the REFERENCE block')
+    ap.add_argument('--keep-from', type=Path, default=None,
+                    help='a folder holding the train.jsonl and val.jsonl a model was actually trained on. '
+                         'Their groups are kept exactly; every other group becomes the holdout.')
     args = ap.parse_args()
 
     pairs = [json.loads(line) for line in args.pairs.read_text(encoding='utf-8').splitlines() if line.strip()]
-    assignment = split_groups(pairs)
+    assignment = pinned_groups(args.keep_from, pairs) if args.keep_from else split_groups(pairs)
     args.out.mkdir(parents=True, exist_ok=True)
 
     buckets: dict[str, list[dict]] = {'train': [], 'val': [], 'test_holdout': []}

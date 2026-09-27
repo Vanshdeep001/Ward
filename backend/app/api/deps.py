@@ -11,6 +11,41 @@ from app.notify.channels import Channel, from_settings
 
 
 @lru_cache(maxsize=1)
+def get_compiler():
+    """The compiler named by WARD_COMPILER. Anything unrecognised falls back to templates, loudly."""
+    from app.compiler.llm import HybridCompiler, LlmCompiler
+    from app.compiler.templates import TemplateCompiler
+
+    mode = settings.compiler.lower()
+    if mode in ('hybrid', 'llm'):
+        llm = LlmCompiler(settings.llm_url, settings.llm_model, settings.llm_timeout)
+        return HybridCompiler(llm, prefer_llm=(mode == 'llm'))
+    if mode != 'templates':
+        import logging
+
+        logging.getLogger('ward').warning('WARD_COMPILER=%r is not templates|hybrid|llm; using templates', mode)
+    return TemplateCompiler()
+
+
+@lru_cache(maxsize=1)
+def get_search():
+    """The RAG search service: Pinecone when WARD_PINECONE_API_KEY is set, else a local keyword index;
+    the answering model when WARD_RAG_LLM_KEY is set, else answers that list the matches."""
+    from app.rag.answer import LlmAnswerer
+    from app.rag.service import SearchService
+    from app.rag.stores import PineconeStore
+
+    store = None
+    if settings.pinecone_api_key:
+        store = PineconeStore(settings.pinecone_api_key, settings.pinecone_index, settings.pinecone_cloud,
+                              settings.pinecone_region, settings.pinecone_embed_model, settings.pinecone_rerank_model)
+    answerer = None
+    if settings.rag_llm_key:
+        answerer = LlmAnswerer(settings.rag_llm_url, settings.rag_llm_key, settings.rag_llm_model)
+    return SearchService(store, answerer)
+
+
+@lru_cache(maxsize=1)
 def get_connection():
     from app.aws.connection import AwsConnection
 

@@ -4,6 +4,8 @@ pydantic>=2.7
 pyyaml>=6
 c7n>=0.9.40
 boto3>=1.34
+# the fine-tuned compiler model is called over HTTP (app/compiler/llm.py)
+httpx>=0.27
 
 # tests
 pytest>=8

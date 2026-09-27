@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Info } from 'lucide-react'
+import { Info, PiggyBank } from 'lucide-react'
 import { rupees } from '../lib/format.js'
 import { Panel } from './ui.jsx'
 
@@ -13,7 +13,7 @@ export default function SavingsCard({ savings, className = '' }) {
   const netShare = Math.round((net / Math.max(cf.avoided, 1)) * 100)
 
   return (
-    <Panel className={className} eyebrow="Verified savings" title="Ward, last 30 days">
+    <Panel className={className} eyebrow="Verified savings" title="Ward, last 30 days" aura="green" icon={PiggyBank}>
       {/* The payoff, before the working */}
       <div className="border-b border-slate-100 bg-gradient-to-b from-emerald-50/60 to-transparent px-5 pb-5 pt-4">
         <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700/70">Net saved</p>

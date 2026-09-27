@@ -19,9 +19,13 @@ class Draft(BaseModel):
     kind: str  # the rule family — 'ec2-runtime', 'require-tag', …
     params: dict = {}
     policy_yaml: str
-    intent: Intent
+    # What the rule means, stated structurally; the verifier builds fixtures from it. None when nothing
+    # independent of the policy can say — a model's draft of a sentence the templates can't read. Such
+    # a draft can be shown, marked unverified, but not verified and not stored.
+    intent: Intent | None = None
     explanation: str  # what this policy does, in the user's own terms
     assumptions: list[str] = []  # decisions Ward made that the sentence did not state
+    drafted_by: str | None = None  # which compiler wrote the policy, when a composite chose between several
 
 
 class Compiler(Protocol):

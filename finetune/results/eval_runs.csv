@@ -1,0 +1,2 @@
+date,run,preds,examples,groups,compile_rate,exact_match
+2026-09-27,v1-1.5b,preds_val.jsonl,71,7,0.9155,0.6479

@@ -26,10 +26,10 @@ export function WardMark({ emergency, size = 32 }) {
 
 /* A deeper card than the plain Stat tiles: a tinted header well with an eyebrow above a
    serif title, and a footer that pins to the bottom so panels sitting side by side line up. */
-export function Panel({ eyebrow, title, action, className = '', children }) {
+export function Panel({ eyebrow, title, action, className = '', aura, icon, children }) {
   return (
     <section
-      className={`flex h-full flex-col overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgb(15_23_42/0.04),0_20px_44px_-30px_rgb(23_23_60/0.45)] ${className}`}
+      className={`group/aura relative flex h-full flex-col overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgb(15_23_42/0.04),0_20px_44px_-30px_rgb(23_23_60/0.45)] ${className}`}
     >
       <header className="flex items-start justify-between gap-4 border-b border-slate-100 bg-gradient-to-b from-slate-50/80 to-white px-5 py-4">
         <div className="min-w-0">
@@ -39,6 +39,7 @@ export function Panel({ eyebrow, title, action, className = '', children }) {
         {action}
       </header>
       {children}
+      <Aura color={aura} icon={icon} />
     </section>
   )
 }
@@ -55,11 +56,51 @@ export function PanelLink({ to, children }) {
   )
 }
 
-export function Card({ className = '', children }) {
+export function Card({ className = '', aura, icon, children }) {
   return (
-    <div className={`rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgb(15_23_42/0.04)] ${className}`}>
+    <div className={`group/aura relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgb(15_23_42/0.04)] ${className}`}>
       {children}
+      <Aura color={aura} icon={icon} />
     </div>
+  )
+}
+
+/* The palette as light. Cards carry their colour as a soft glow in the top-right corner and, when they
+   have an icon, that icon oversized and faint in the bottom-right, like a watermark. Both multiply onto
+   whatever is underneath, so they tint the card without ever sitting over the text in a solid colour.
+   The card needs `group/aura relative overflow-hidden`; put <Aura> last among its children. */
+export const TINT = {
+  arc: '#3139fb',
+  peri: '#8e96ff',
+  lilac: '#b79bff',
+  violet: '#a78bfa',
+  pink: '#f5a3c7',
+  peach: '#ffb48f',
+  coral: '#f7827d',
+  amber: '#f5b54a',
+  green: '#34c79a',
+  slate: '#94a3b8',
+}
+
+export function Aura({ color = 'arc', icon: Icon, size = 120 }) {
+  const hex = TINT[color] ?? color
+  return (
+    <>
+      <span
+        aria-hidden
+        className="pointer-events-none absolute -right-16 -top-20 h-52 w-52 rounded-full opacity-70 mix-blend-multiply blur-2xl transition-opacity duration-500 group-hover/aura:opacity-100"
+        style={{ background: `radial-gradient(circle, ${hex}40, ${hex}00 70%)` }}
+      />
+      {Icon && (
+        <Icon
+          aria-hidden
+          size={size}
+          strokeWidth={1.2}
+          className="pointer-events-none absolute -bottom-6 -right-5 mix-blend-multiply transition-transform duration-500 group-hover/aura:-rotate-6 group-hover/aura:scale-105"
+          style={{ color: hex, opacity: 0.1 }}
+        />
+      )}
+    </>
   )
 }
 
@@ -143,10 +184,10 @@ export function PageHeader({ title, subtitle, action }) {
   )
 }
 
-export function Stat({ label, value, hint, tone = 'slate' }) {
+export function Stat({ label, value, hint, tone = 'slate', icon }) {
   const color = { slate: 'text-ink', green: 'text-emerald-700', red: 'text-coral-600', amber: 'text-amber-700' }[tone]
   return (
-    <Card className="p-5">
+    <Card className="p-5" aura={{ slate: 'arc', green: 'green', red: 'coral', amber: 'amber' }[tone]} icon={icon}>
       <p className="text-xs font-semibold text-slate-500">{label}</p>
       {/* Proportional figures: these sit side by side, so equal-width digits only read loose. */}
       <p className={`mt-2 font-display text-[2rem] font-semibold leading-none ${color}`}>{value}</p>

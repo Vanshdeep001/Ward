@@ -45,6 +45,9 @@ coverage/
 .coverage
 htmlcov/
 
+# Hugging Face model downloads (generate.py keeps them here, on the big drive)
+.hf-cache/
+
 # ─── Fine-tuning artefacts (large; tracked with DVC / MLflow instead) ──
 finetune/adapters/
 finetune/data/generated/

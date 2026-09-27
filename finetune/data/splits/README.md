@@ -35,8 +35,19 @@ Families are stratified, so each split contains the same mix of rule types.
 python scripts/04_build_dataset.py
 ```
 
-Deterministic — the group assignment is seeded. Re-running produces the same splits, so a rebuild
-does not quietly move examples from holdout to train.
+Deterministic — each family is shuffled by its own name-seeded generator, so re-running produces the
+same split. (Until 2026-09-27 it did not: the builder iterated a Python set, whose order changes per
+process, and every run reshuffled. Any split built before then must be restored, not rebuilt.)
+
+**Once a model has been trained, pin the split to the files it actually saw:**
+
+```bash
+python scripts/04_build_dataset.py --keep-from path/to/folder-with-train-and-val
+```
+
+Train and val groups are taken from those files exactly, and every other group becomes the holdout.
+That guarantees the holdout contains nothing the model trained on, whatever the builder would choose
+today.
 
 **If you add seed rules,** the split boundaries move. Do that before you start training, not after,
 and never once the holdout has been opened.

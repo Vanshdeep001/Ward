@@ -8,9 +8,11 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_channel, get_inventory, get_session
 from app.config import settings
+from app.engine.custodian import resource_id
 from app.inventory.store import InventoryStore
 from app.models import Alert, Notification
 from app.notify.channels import Channel
+from app.simulator.dryrun import summarise
 from app.watcher.evaluator import snooze
 from app.watcher.run import run_sweep
 
@@ -44,11 +46,42 @@ def alert_out(alert: Alert) -> dict:
 
 
 @router.get('/alerts')
-def list_alerts(status: str | None = None, session: Session = Depends(get_session)):
+def list_alerts(status: str | None = None, session: Session = Depends(get_session),
+                inventory: InventoryStore = Depends(get_inventory)):
     query = select(Alert).order_by(Alert.created_at.desc())
     if status:
         query = query.where(Alert.status == status)
-    return [alert_out(a) for a in session.scalars(query)]
+    alerts = [alert_out(a) for a in session.scalars(query)]
+    return _with_live_facts(alerts, inventory)
+
+
+def _with_live_facts(alerts: list[dict], inventory: InventoryStore) -> list[dict]:
+    """Attach what the resource looks like *now* — its type, region, how long it has run, what it costs.
+
+    The alert's own message was written when it fired and is prose; the page needs structured facts,
+    and "running 2074.7h" frozen at alert time is less useful than "up 86 days" today. A resource that
+    has since gone from the inventory is marked absent rather than dropped.
+    """
+    try:
+        snapshot = inventory.latest()
+    except Exception:  # an unreachable account must not break the alert list
+        return alerts
+    index = {resource_id(rtype, r): (rtype, r) for rtype, rs in snapshot.resources.items() for r in rs}
+    for alert in alerts:
+        found = index.get(alert['resourceId'])
+        if found is None:
+            alert['resource']['present'] = False
+            continue
+        summary = summarise(found[0], found[1], snapshot.taken_at)
+        alert['resource'].update({
+            'present': True,
+            'name': alert['resource']['name'] or summary.name,
+            'detail': summary.detail,
+            'region': summary.region,
+            'runningHours': summary.running_hours,
+            'costPerDay': summary.cost_per_day,
+        })
+    return alerts
 
 
 class SnoozeRequest(BaseModel):

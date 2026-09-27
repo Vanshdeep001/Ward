@@ -7,8 +7,8 @@ from importlib.metadata import version
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import accounts, chat, costs, guardian, resources, rules, watch
-from app.api.deps import get_channel, get_database, get_inventory
+from app.api import accounts, chat, costs, guardian, resources, rules, search, watch
+from app.api.deps import get_channel, get_compiler, get_database, get_inventory
 from app.config import settings
 from app.engine import custodian
 from app.rules_service import seed_starter_rules
@@ -61,14 +61,22 @@ app.include_router(accounts.router)
 app.include_router(costs.router)
 app.include_router(guardian.router)
 app.include_router(chat.router)
+app.include_router(search.router)
 
 
 @app.get('/health')
 def health():
+    compiler = get_compiler()
+    llm = getattr(compiler, 'llm', None)
     return {
         'status': 'ok',
         'inventory': settings.inventory_source,
         'region': settings.region,
         'custodian': version('c7n'),
         'watcher': f'every {settings.poll_minutes:g} min' if settings.poll_minutes > 0 else 'manual',
+        'compiler': {
+            'mode': compiler.name if llm else 'templates',
+            # Only asked when a model is in use; a quick probe, so /health stays fast either way.
+            'model': {'url': llm.url, 'name': llm.model, 'reachable': llm.reachable()} if llm else None,
+        },
     }

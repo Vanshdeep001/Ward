@@ -81,3 +81,15 @@ def test_simulate_invalid_policy_is_422(client):
     res = client.post('/rules/simulate', json={'policy_yaml': 'policies: [oops'})
     assert res.status_code == 422
     assert 'Not valid YAML' in res.json()['detail']
+
+
+def test_alerts_carry_live_resource_facts_not_just_prose(client):
+    """The Alerts page groups and lays out resources from structured facts — never by parsing the message."""
+    client.post('/watcher/sweep')
+    alerts = client.get('/alerts').json()
+    assert alerts, 'a sweep of the sample account should open alerts'
+
+    ec2 = next(a for a in alerts if a['resource']['type'] == 'aws.ec2' and a['resource'].get('present'))
+    assert ec2['resource']['detail']  # the instance type, e.g. g5.xlarge
+    assert ec2['resource']['region']
+    assert 'runningHours' in ec2['resource'] and 'costPerDay' in ec2['resource']
