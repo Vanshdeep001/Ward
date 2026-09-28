@@ -1,6 +1,6 @@
 """Serve the fine-tuned compiler over HTTP, so Ward's backend can call it.
 
-    python 07_serve.py                    # http://127.0.0.1:8001, base + vansh-deep/ward-compiler-1.5b
+    python 07_serve.py                    # http://127.0.0.1:8001, base + vansh-deep/ward-compiler-1.5b-v2
     python 07_serve.py --adapter path\\to\\ward-compiler-v1 --port 8001
 
 Endpoints
@@ -92,7 +92,8 @@ def create_app():
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--base-model', default='Qwen/Qwen2.5-Coder-1.5B-Instruct')
-    ap.add_argument('--adapter', default='vansh-deep/ward-compiler-1.5b')
+    ap.add_argument('--adapter', default='vansh-deep/ward-compiler-1.5b-v2',
+                    help='v2 (2,099 verified pairs); v1 is vansh-deep/ward-compiler-1.5b')
     ap.add_argument('--name', default='ward-compiler', help='the model id clients ask for')
     ap.add_argument('--host', default='127.0.0.1', help='127.0.0.1 keeps it off the network')
     ap.add_argument('--port', type=int, default=8001)

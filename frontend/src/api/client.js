@@ -57,6 +57,6 @@ export const api = {
   findings: () => pick(() => mock.findings(), 'GET', '/guardian/findings'),
   conflicts: () => pick(() => mock.conflicts(), 'GET', '/rules/conflicts'),
   architect: (prompt, answers) => pick(() => mock.architect(prompt, answers), 'POST', '/architect', { prompt, answers }),
-  chat: (message, state) => pick(() => mock.chat(message, state), 'POST', '/chat', { message, state }),
+  chat: (message, state, scope = []) => pick(() => mock.chat(message, state), 'POST', '/chat', { message, state, scope }),
   searchStatus: () => pick(() => Promise.resolve({ retriever: 'local', generator: 'extractive', indexed: {} }), 'GET', '/search/status'),
 }

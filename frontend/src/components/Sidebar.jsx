@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   Bell, Blocks, ChevronsLeft, Eye, Flame, LayoutDashboard, MessageSquare, Pin, Radar, Search, Server, ShieldAlert,
-  ShieldCheck, Sparkles, Target,
+  MessageSquareText, ShieldCheck, Target,
 } from 'lucide-react'
 import { useAlerts, useConnection, useCosts, useFindings, useHealth, useResources, useRules } from '../api/hooks.js'
 import { USE_MOCKS } from '../api/client.js'
@@ -269,7 +269,7 @@ function Full({ emergency, onEmergency, pinned, account, pathname, costs, readin
 
       <form onSubmit={submitAsk} className="mt-4">
         <label className="group flex items-center gap-2 rounded-xl bg-white/[0.06] px-3 py-2.5 text-sm ring-1 ring-inset ring-white/10 transition focus-within:bg-white/[0.1] focus-within:ring-white/50">
-          <Sparkles size={15} className="shrink-0 text-white/80" />
+          <MessageSquareText size={15} className="shrink-0 text-white/80" />
           <input
             ref={askRef}
             value={ask}
@@ -433,7 +433,7 @@ function Rail({ emergency, onEmergency, pinned, account, pathname, costs, readin
         aria-label={`Ask Ward (${isMac ? '⌘K' : 'Ctrl K'})`}
         className="deck-well mt-4 grid h-10 w-10 shrink-0 place-items-center rounded-2xl text-white transition hover:scale-105"
       >
-        <Sparkles size={16} />
+        <MessageSquareText size={16} />
       </button>
 
       <span className="my-3 h-px w-7 shrink-0 bg-white/10" />

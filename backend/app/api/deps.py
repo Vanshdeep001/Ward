@@ -28,6 +28,15 @@ def get_compiler():
 
 
 @lru_cache(maxsize=1)
+def get_router():
+    """Sorts what was typed into rule / question / other before the compiler sees it. Uses the chat model
+    configured for search (WARD_RAG_LLM_*); without one, a keyword gate and a question heuristic decide."""
+    from app.compiler.router import Router
+
+    return Router(settings.rag_llm_url, settings.rag_llm_key, settings.rag_llm_model)
+
+
+@lru_cache(maxsize=1)
 def get_search():
     """The RAG search service: Pinecone when WARD_PINECONE_API_KEY is set, else a local keyword index;
     the answering model when WARD_RAG_LLM_KEY is set, else answers that list the matches."""

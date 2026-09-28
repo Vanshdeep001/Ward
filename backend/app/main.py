@@ -7,7 +7,7 @@ from importlib.metadata import version
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import accounts, chat, costs, guardian, resources, rules, search, watch
+from app.api import accounts, architect, chat, costs, guardian, resources, rules, search, watch
 from app.api.deps import get_channel, get_compiler, get_database, get_inventory
 from app.config import settings
 from app.engine import custodian
@@ -62,6 +62,7 @@ app.include_router(costs.router)
 app.include_router(guardian.router)
 app.include_router(chat.router)
 app.include_router(search.router)
+app.include_router(architect.router)
 
 
 @app.get('/health')

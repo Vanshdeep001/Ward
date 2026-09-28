@@ -140,3 +140,35 @@ def test_the_harness_runs_end_to_end_offline(poisoned_docs, tmp_path):
     report = {'at': 'now', 'documents': len(poisoned_docs), 'cases': len(cases), 'k': 6, 'model': 'fake',
               'answerSetup': 'local', 'retrieval': retrieval, 'answers': answers}
     assert '## Retrieval' in evaluate.markdown(report) and '## Answers' in evaluate.markdown(report)
+
+
+# ─── Focus: asking about chosen resources ───────────────────────────────────
+
+def test_a_scope_limits_retrieval_to_the_chosen_resources(poisoned_docs):
+    answerer, calls = model('vol-01 [vol-01] is unattached.')
+    result = SearchService(answerer=answerer).ask('which of these are idle?', 'ns', poisoned_docs, scope=['vol-01', 'i-0a1f2'])
+    assert result['retriever'] == 'focus' and result['focus'] == 2
+    assert set(result['retrieved']) == {'vol-01', 'i-0a1f2'}
+    system = calls[0]['messages'][0]['content']
+    assert 'Account overview' not in system, 'nothing from outside the chosen resources'
+    assert 'picked the resources below' in system
+
+
+def test_a_scope_of_vanished_resources_searches_everything(poisoned_docs):
+    result = SearchService().ask('unattached volumes', 'ns', poisoned_docs, scope=['i-gone'])
+    assert result['retriever'] == 'local' and 'whole account' in result['notice']
+
+
+def test_chat_with_a_scope_goes_straight_to_focused_search(sample):
+    from fastapi.testclient import TestClient
+    from app.api.deps import get_inventory, get_search
+    from app.main import app
+    app.dependency_overrides[get_inventory] = lambda: sample
+    app.dependency_overrides[get_search] = lambda: SearchService()
+    try:
+        with TestClient(app) as c:
+            # "what is costing the most" would normally take the computed spend branch
+            body = c.post('/chat', json={'message': 'what is costing the most?', 'state': {}, 'scope': ['vol-01', 'vol-02']}).json()
+    finally:
+        app.dependency_overrides.clear()
+    assert body['message']['intent'] == 'SEARCH' and body['message']['focus'] == 2

@@ -71,6 +71,45 @@ def test_the_backend_prompt_is_the_one_the_model_was_trained_on():
                  'Only t3.micro allowed', 'No resources outside eu-west-1', UNREADABLE, 'make it cheaper']:
         assert prompt.retrieve(rule) == training.retrieve(rule)
         assert prompt.build_messages(rule, 'ref') == training.build_messages(rule, 'ref')
+        assert prompt.looks_like_rule(rule) == training.looks_like_rule(rule)
+
+
+# ─── Sentences that are not rules never reach the model ──────────────────────
+
+NOT_RULES = ['hello', 'what is the weather today', 'write me a poem about the sea', 'I run every morning for 5 km',
+             'only pizza is allowed here', 'the movie runs for two hours', 'tell me a joke', 'thanks a lot']
+RULES = ['No GPU instance may run for more than 6 hours', 'Nothing should run for more than two hours',
+         "Don't expose Redis to the world", 'Flag anything running outside Mumbai',
+         'Only t3a.micro and t4g.small instances are allowed', 'Remote desktop must not be exposed to the internet',
+         'Every GPU machine must carry a CostCentre tag', 'Make sure no database is reachable from the internet']
+
+
+@pytest.mark.parametrize('sentence', NOT_RULES)
+def test_a_sentence_that_is_not_a_rule_is_never_sent_to_the_model(sentence):
+    server = FakeModelServer()
+    assert compiler_for(server, prefer_llm=True).compile(sentence) is None
+    assert server.requests == [], 'the model must not be asked'
+
+
+@pytest.mark.parametrize('sentence', RULES)
+def test_real_rules_pass_the_gate(sentence):
+    assert prompt.looks_like_rule(sentence)
+
+
+def test_every_training_sentence_passes_the_gate():
+    """The gate must never block a sentence the model was trained to handle."""
+    path = Path(__file__).resolve().parents[2] / 'finetune' / 'data' / 'verified' / 'pairs.jsonl'
+    if not path.exists():
+        pytest.skip('finetune data not present in this checkout')
+    blocked = [json.loads(line)['english'] for line in path.read_text(encoding='utf-8').splitlines()
+               if line.strip() and not prompt.looks_like_rule(json.loads(line)['english'])]
+    assert blocked == []
+
+
+def test_the_app_says_ward_could_not_map_a_non_rule(sample):
+    result = compile_rule('hello there my friend', sample, REGION, skip_clarify=True,
+                          compiler=compiler_for(FakeModelServer(), prefer_llm=True))
+    assert result['status'] == 'failed'
 
 
 def test_the_model_is_asked_in_the_trained_shape_and_greedily():

@@ -87,6 +87,35 @@ _RESOURCE = {
 }
 
 
+# What a guardrail is *about*. The model was trained only on rules, so it answers every input with a
+# policy — "hello" becomes a policy named require-greeting. It must never see a sentence that names
+# nothing Ward watches.
+_SUBJECT = re.compile(
+    r'\b(instances?|ec2|vms?|servers?|machines?|compute|boxe?s?|nodes?|workloads?|gpus?|accelerators?|'
+    r'notebooks?|training jobs?|experiments?|volumes?|ebs|disks?|storage|snapshots?|databases?|dbs?|rds|'
+    r'postgres\w*|mysql|mongo\w*|redis|elasticsearch|security groups?|firewall|ports?|ssh|rdp|ftp|telnet|'
+    r'ingress|inbound|remote desktop|unattached|detached|orphan\w*|0\.0\.0\.0/0|regions?|tags?|tagged|untagged|owner|costcentre|resources?|account|'
+    r'mumbai|hyderabad|singapore|ireland|london|frankfurt|virginia|oregon)\b'
+    r'|\b[a-z]\d[a-z]{0,3}\.(nano|micro|small|medium|\d*x?large)\b'  # t3.micro, g4dn.xlarge
+    r'|\b[a-z]{2}(-[a-z]+)+-\d\b'                                    # ap-south-1
+    r'|\b[gp]\d\w*\b'                                                # g5, p3 — GPU families
+)
+# "Nothing runs longer than 12 hours", "Kill anything running over 90 minutes": the subject is implied
+# by a catch-all running for a duration. The catch-all is required — "the movie runs for two hours"
+# names no subject and is not a rule.
+_NUM = r'(\d+(\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)'
+_RUNS_FOR = re.compile(r'\b(nothing|anything|everything|whatever)\b.*\b(run\w*|up|on|alive|left)\b.*'
+                       r'(\b' + _NUM + r'\s*(h|hrs?|hours?|minutes?|mins?|days?)\b|\b(a day|a week|half a day|overnight)\b)')
+
+
+def looks_like_rule(rule: str) -> bool:
+    """Whether a sentence is about something a guardrail can watch. Checked before any model is asked."""
+    text = rule.lower().strip()
+    if len(text.split()) < 3:
+        return False
+    return bool(_SUBJECT.search(text) or _RUNS_FOR.search(text))
+
+
 def retrieve(rule: str) -> tuple[str | None, str]:
     """Guess the rule family from the sentence and return (family, REFERENCE text)."""
     text = rule.lower()

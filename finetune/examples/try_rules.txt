@@ -1,22 +1,11 @@
-# Rules for trying the compiler model: python generate.py --file ..\examples\try_rules.txt
-# Lines starting with # are skipped. About 30 s per rule on a laptop CPU.
-
-# Should pass — families that scored 100% on validation
-Every instance must have an Owner tag
-SSH must never be open to the internet
-Only t3.micro and t2.micro instances are allowed
-No resources outside eu-west-1
-Flag EBS volumes unattached for more than 14 days
-
-# Known weakness — the first two match the two v1 failure patterns
-No accelerator should run for more than 4 hours
-Stop GPU instances that have been up for over 6 hours
-GPU instances must not run longer than 6 hours
-
-# Wording the model never saw
-Kill anything running longer than 90 minutes
-Volumes attached to nothing for a fortnight should go
-Don't let the big GPU box run overnight
-
-# Out of scope — Ward cannot express this; watch whether the model invents a policy anyway
-Allow frontend to access backend on port 8080
+GPU boxes are for short experiments, not overnight runs
+Please flag any g5 or p3 box that's been running for over 4 hours
+Stop GPU instances that run longer than 6 hours
+No accelerator should run for more than 3 hours
+Kill any VM that has been alive longer than 5 hours
+Flag anything running outside Mumbai
+Don't expose Redis to the world
+Only t3a.micro and t4g.small instances are allowed
+Warn me about volumes left detached for more than 11 days
+Every GPU machine must carry a CostCentre tag
+Make sure no database is reachable from the internet

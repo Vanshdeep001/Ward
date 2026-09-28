@@ -1,7 +1,6 @@
 import { useState } from 'react'
-import { AlertOctagon, Check, Copy, Database, ExternalLink, Flame, X } from 'lucide-react'
+import { ArrowRight, Check, Copy, Database, ExternalLink, Flame, Lock, ShieldCheck, X } from 'lucide-react'
 import { rupees } from '../lib/format.js'
-import { Button, Pill } from './ui.jsx'
 
 const consoleUrl = (r) =>
   r.type === 'rds'
@@ -16,6 +15,9 @@ const stopCommand = (r) =>
     : r.type === 'nat'
       ? `aws ec2 delete-nat-gateway --nat-gateway-id ${r.id} --region ${r.region}`
       : `aws ec2 stop-instances --instance-ids ${r.id} --region ${r.region}`
+
+// Small hourly figures would round to ₹1 or ₹0; keep the paise until the number is big enough not to need them.
+const perHour = (n) => (n < 100 ? `₹${n.toFixed(2)}` : rupees(n))
 
 // SRS §24 Tier 1 — advisory only. Ward ranks what is burning money and hands over the commands;
 // it never runs them. Production and data-holding resources are never included in bulk actions.
@@ -32,8 +34,8 @@ export default function EmergencyModal({ isOpen, active, onActivate, onExit, onC
   const stoppable = burning.filter((r) => r.type === 'ec2' && !isProtected(r))
 
   const hourlyBurn = burning.reduce((s, r) => s + r.costPerHour, 0)
-  const topTwo = stoppable.slice(0, 2)
-  const topTwoSaving = topTwo.reduce((s, r) => s + r.costPerHour, 0)
+  const top = stoppable.slice(0, 2)
+  const saving = top.reduce((s, r) => s + r.costPerHour, 0) * 24
   const bulkCommand = `aws ec2 stop-instances --region ap-south-1 --instance-ids ${stoppable.map((r) => r.id).join(' ')}`
 
   function copy(text, id) {
@@ -43,80 +45,106 @@ export default function EmergencyModal({ isOpen, active, onActivate, onExit, onC
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4 backdrop-blur-sm" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="emergency-title"
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-rose-200 bg-white shadow-2xl"
+        className="animate-rise flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-[30px] bg-white shadow-[0_40px_90px_-30px_rgb(120_20_20/0.55)]"
       >
-        <div className="flex items-center justify-between border-b border-rose-100 bg-rose-50/80 px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-xl bg-rose-600 text-white"><Flame size={20} /></div>
-            <div>
-              <h2 id="emergency-title" className="text-base font-semibold text-rose-950">Emergency budget mode</h2>
-              <p className="text-xs text-rose-800">
-                {active ? 'Active · polling every 5 minutes · snooze disabled · auto-expires in 24h' : 'Tier 1 advisory — no new permissions needed'}
-              </p>
-            </div>
+        {/* The headline: what's burning, and what stopping the worst of it saves. */}
+        <div className="grain relative bg-coral-500 px-7 pb-7 pt-6 text-white">
+          <div className="flex items-start justify-between gap-4">
+            <p className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-white/80">
+              <Flame size={14} /> Emergency budget mode
+              {active && <span className="rounded-full bg-white px-2 py-0.5 text-[10px] tracking-[0.12em] text-coral-600">Active</span>}
+            </p>
+            <button type="button" onClick={onClose} className="-mr-2 -mt-1 grid h-9 w-9 place-items-center rounded-full text-white/80 transition hover:bg-white/15 hover:text-white" aria-label="Close">
+              <X size={18} />
+            </button>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-rose-700 transition hover:bg-rose-100" aria-label="Close"><X size={18} /></button>
+
+          <h2 id="emergency-title" className="mt-4 font-display text-[clamp(1.9rem,4.5vw,2.7rem)] font-semibold leading-[1.05] tracking-tight">
+            {burning.length ? <>{rupees(hourlyBurn * 24)} a day is burning.</> : 'Nothing is burning money right now.'}
+          </h2>
+
+          {burning.length > 0 && (
+            <dl className="mt-5 flex flex-wrap gap-x-9 gap-y-3">
+              <Figure label="Right now" value={`${perHour(hourlyBurn)}/hr`} />
+              <Figure label="Running and billing" value={burning.length} />
+              {top.length > 0 && (
+                <Figure label={top.length === 1 ? `Stop ${top[0].name}` : `Stop the top ${top.length}`} value={`−${rupees(saving)}/day`} />
+              )}
+            </dl>
+          )}
+
+          <p className="mt-5 text-[12.5px] leading-relaxed text-white/85">
+            {active
+              ? 'Active · checking every 5 minutes · snooze is off · ends by itself after 24 hours.'
+              : 'Tier 1 advisory — Ward ranks what to stop and hands you the commands. No new permissions needed.'}
+          </p>
         </div>
 
-        <div className="space-y-4 overflow-y-auto p-6">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <Metric label="Burning now" value={`${rupees(hourlyBurn)}/hr`} hint={`${rupees(hourlyBurn * 24)}/day`} danger />
-            <Metric label="Running resources" value={burning.length} hint="EC2, RDS and NAT" />
-            <Metric label="Stop the top 2" value={`−${rupees(topTwoSaving * 24)}/day`} hint={topTwo.map((r) => r.name).join(', ')} />
-          </div>
-
-          <p className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs leading-relaxed text-amber-900">
-            <AlertOctagon size={14} className="mt-0.5 shrink-0 text-amber-700" />
-            Ward has read-only access and never changes your account. Copy a command or open the console to act. Production-tagged resources and databases are never included in the bulk command.
+        <div className="space-y-4 overflow-y-auto px-7 py-6">
+          <p className="flex items-start gap-2.5 text-[12.5px] leading-relaxed text-slate-500">
+            <ShieldCheck size={15} className="mt-0.5 shrink-0 text-arc-500" />
+            Ward is read-only and never changes your account. Production-tagged resources and databases are never in the bulk command.
           </p>
 
-          <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Most expensive first</p>
-            {stoppable.length > 0 && (
-              <Button variant="secondary" className="py-1 text-xs" onClick={() => copy(bulkCommand, 'bulk')}>
-                {copied === 'bulk' ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
-                {copied === 'bulk' ? 'Copied' : `Copy stop command for ${stoppable.length} non-production instances`}
-              </Button>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Most expensive first</p>
+            {stoppable.length > 1 && (
+              <button
+                type="button"
+                onClick={() => copy(bulkCommand, 'bulk')}
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-[12px] font-bold text-slate-600 transition hover:border-slate-300 hover:text-ink"
+              >
+                {copied === 'bulk' ? <Check size={13} className="text-emerald-600" /> : <Copy size={13} />}
+                {copied === 'bulk' ? 'Copied' : `Copy one command for all ${stoppable.length}`}
+              </button>
             )}
           </div>
 
-          <ol className="space-y-2.5">
+          <ol className="space-y-3">
             {burning.map((r, i) => {
               const cmd = stopCommand(r)
               const guarded = isProtected(r) || holdsData(r)
               return (
-                <li key={r.id} className="rounded-xl border border-slate-200 bg-white p-3.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="w-5 text-xs tabular-nums text-slate-400">{i + 1}.</span>
-                      <span className="text-sm font-semibold text-slate-900">{r.name}</span>
-                      <span className="font-mono text-xs text-slate-500">{r.id}</span>
-                      <span className="text-xs text-slate-400">{r.instanceType ?? r.type.toUpperCase()}</span>
-                      {isProtected(r) && <Pill tone="blue">production</Pill>}
-                      {holdsData(r) && <Pill tone="amber"><Database size={11} /> holds data</Pill>}
+                <li key={r.id} className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgb(15_23_42/0.04)]">
+                  <div className="flex items-center gap-4">
+                    <span className="w-8 shrink-0 font-display text-[1.7rem] font-semibold leading-none text-coral-400">{String(i + 1).padStart(2, '0')}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="flex flex-wrap items-center gap-2">
+                        <span className="font-display text-[1.2rem] font-semibold tracking-tight text-ink">{r.name}</span>
+                        {isProtected(r) && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-arc-50 px-2 py-0.5 text-[10.5px] font-bold text-arc-700"><Lock size={10} /> production</span>
+                        )}
+                        {holdsData(r) && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10.5px] font-bold text-amber-700"><Database size={10} /> holds data</span>
+                        )}
+                      </p>
+                      <p className="truncate font-mono text-[11px] text-slate-400">{r.id} · {r.instanceType ?? r.type.toUpperCase()}</p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold tabular-nums text-rose-700">{rupees(r.costPerHour * 24)}/day</span>
-                      <a href={consoleUrl(r)} target="_blank" rel="noreferrer" className="p-1 text-slate-400 transition hover:text-slate-700" title="Open in AWS console">
-                        <ExternalLink size={14} />
-                      </a>
+                    <div className="shrink-0 text-right">
+                      <p className="font-display text-[1.35rem] font-semibold leading-none tabular-nums text-coral-600">{rupees(r.costPerHour * 24)}</p>
+                      <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">a day</p>
                     </div>
+                    <a href={consoleUrl(r)} target="_blank" rel="noreferrer" className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-ink" title="Open in AWS console">
+                      <ExternalLink size={15} />
+                    </a>
                   </div>
                   {guarded ? (
-                    <p className="mt-2 pl-7 text-xs text-slate-500">
+                    <p className="mt-3 pl-12 text-[12.5px] text-slate-500">
                       {holdsData(r) ? 'Review before stopping — take a snapshot first if the data matters.' : 'Tagged production — Ward won’t suggest stopping it.'}
                     </p>
                   ) : (
-                    <div className="mt-2 flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5">
-                      <code className="flex-1 overflow-x-auto whitespace-nowrap font-mono text-[11px] text-slate-300">{cmd}</code>
-                      <button onClick={() => copy(cmd, r.id)} className="text-slate-400 transition hover:text-white" title="Copy command">
-                        {copied === r.id ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                    <div className="mt-3 flex items-center gap-2 rounded-2xl bg-paper px-3.5 py-2 ring-1 ring-inset ring-slate-200/80 md:ml-12">
+                      <code className="flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">
+                        <span className="select-none text-coral-500">$ </span>{cmd}
+                      </code>
+                      <button type="button" onClick={() => copy(cmd, r.id)} className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11.5px] font-bold text-slate-500 transition hover:bg-white hover:text-ink" title="Copy command">
+                        {copied === r.id ? <><Check size={12} className="text-emerald-600" /> Copied</> : <><Copy size={12} /> Copy</>}
                       </button>
                     </div>
                   )}
@@ -126,25 +154,37 @@ export default function EmergencyModal({ isOpen, active, onActivate, onExit, onC
           </ol>
         </div>
 
-        <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 bg-slate-50 px-6 py-3">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 px-7 py-4">
+          <button type="button" onClick={onClose} className="rounded-full px-4 py-2 text-[14px] font-bold text-slate-500 transition hover:bg-slate-100 hover:text-ink">
+            Close
+          </button>
           {active ? (
-            <Button variant="secondary" onClick={onExit}>Exit emergency mode</Button>
+            <button type="button" onClick={onExit} className="rounded-full border border-slate-200 bg-white px-5 py-2 text-[14px] font-bold text-ink transition hover:border-slate-300">
+              Exit emergency mode
+            </button>
           ) : (
-            <Button variant="danger" onClick={onActivate}><Flame size={15} /> Enter emergency mode</Button>
+            <button
+              type="button"
+              onClick={onActivate}
+              className="group inline-flex items-center gap-2.5 rounded-full bg-coral-500 py-1.5 pl-5 pr-1.5 text-[14.5px] font-bold text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.25),0_14px_28px_-12px_rgb(238_93_88/0.8)] transition hover:bg-coral-600"
+            >
+              Enter emergency mode
+              <span className="grid h-8 w-8 place-items-center rounded-full bg-white/20 transition group-hover:translate-x-0.5">
+                <ArrowRight size={15} strokeWidth={2.5} />
+              </span>
+            </button>
           )}
-          <Button variant="ghost" onClick={onClose}>Close</Button>
         </div>
       </div>
     </div>
   )
 }
 
-function Metric({ label, value, hint, danger }) {
+function Figure({ label, value }) {
   return (
-    <div className={`rounded-xl border p-3 ${danger ? 'border-rose-100 bg-rose-50/40' : 'border-slate-200 bg-slate-50'}`}>
-      <p className={`text-[11px] font-medium uppercase tracking-wider ${danger ? 'text-rose-700' : 'text-slate-500'}`}>{label}</p>
-      <p className={`mt-1 text-xl font-bold tabular-nums ${danger ? 'text-rose-950' : 'text-slate-900'}`}>{value}</p>
-      <p className={`truncate text-[11px] ${danger ? 'text-rose-600' : 'text-slate-500'}`}>{hint}</p>
+    <div>
+      <dt className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-white/70">{label}</dt>
+      <dd className="mt-1 font-display text-[1.7rem] font-semibold leading-none tabular-nums">{value}</dd>
     </div>
   )
 }

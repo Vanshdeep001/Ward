@@ -4,6 +4,8 @@
     question ──► screen (action? injection?) ──► store.search (top k, reranked) ──► + account overview
              ──► answerer ──► off-topic? ──► numbers checked ──► answer + sources
 
+With a scope — resources the user picked — retrieval is just those resources, ranked, with no overview.
+
 Indexing is lazy and incremental. Every question rebuilds the documents (cheap, and it is the only way
 to see the latest sweep), compares each one's fingerprint with what was last sent, and upserts only
 those that changed, deleting any resource that disappeared. Document text uses whole days, so a quiet
@@ -68,34 +70,32 @@ class SearchService:
 
     # ─── Ask ─────────────────────────────────────────────────────────────────
 
-    def ask(self, question: str, namespace: str, docs: list[Doc], history: list[dict] | None = None) -> dict:
+    def ask(self, question: str, namespace: str, docs: list[Doc], history: list[dict] | None = None,
+            scope: list[str] | None = None) -> dict:
+        """scope: resource ids the user chose to ask about. Retrieval is then those resources and nothing
+        else — no vector search, no overview — ranked by how well each matches the question."""
         verdict = guardrails.screen_question(question)
         if verdict.blocked:
             # Refused before anything is retrieved or any model is asked.
             return _blocked(verdict, retriever='none')
 
         notices = []
-        retriever = self.store.name
-        try:
-            fresh = self.sync(namespace, docs).get('fresh')
-            hits = self.store.search(namespace, question, self.top_k)
-            if not hits and self.store is not self.local and fresh:
-                # Pinecone makes new records searchable a few seconds after upsert; the first question
-                # after indexing shouldn't come back empty because of it.
-                hits, retriever = self.local.search(namespace, question, self.top_k), 'local'
-                notices.append('Pinecone is still indexing this account, so the local index answered this one.')
-        except StoreUnavailable as exc:
-            log.warning('vector store unavailable: %s', exc)
-            self._sync(self.local, namespace, docs)
-            hits, retriever = self.local.search(namespace, question, self.top_k), 'local'
-            notices.append(f'{exc} The local index answered instead.')
+        wanted = set(scope or ())
+        focused = [d for d in docs if d.id in wanted]
+        if wanted and not focused:
+            notices.append('None of the chosen resources are in the inventory any more, so the whole account was searched.')
+        if focused:
+            hits, retriever = self._focus(question, focused), 'focus'
+            context = hits  # the user drew the boundary: no overview, nothing from outside it
+        else:
+            hits, retriever = self._retrieve(question, namespace, docs, notices)
+            context = self._with_overview(hits, docs)
 
-        context = self._with_overview(hits, docs)
         generator = 'extractive'
         text = None
         if self.answerer is not None:
             try:
-                text = self.answerer.answer(question, context, history)
+                text = self.answerer.answer(question, context, history, focused=bool(focused))
                 generator = self.answerer.name
             except answers.AnswerUnavailable as exc:
                 log.warning('answer model unavailable: %s', exc)
@@ -113,13 +113,12 @@ class SearchService:
 
         # Resources the answer names from the overview, beyond the top k, are real too: they become sources.
         in_context = {h.id for h in context}
-        everything = context + [Hit(d.id, 0.0, d.text, d.fields) for d in docs if d.id not in in_context]
+        everything = context + ([] if focused else [Hit(d.id, 0.0, d.text, d.fields) for d in docs if d.id not in in_context])
         cited = answers.cited(text, everything)
         retrieved = {h.id for h in hits}
         # Only for a model's answer: the extractive one quotes the overview, which names nearly everything.
         extra = [h for h in everything if h.id in cited and h.id not in retrieved] if generator != 'extractive' else []
-        shown = hits + extra
-        sources = [_source(h, h.id in cited) for h in shown if h.id != OVERVIEW_ID]
+        sources = [_source(h, h.id in cited) for h in hits + extra if h.id != OVERVIEW_ID]
         # Cited first, in the order the answer mentions them; then the rest by relevance.
         sources.sort(key=lambda s: (not s['cited'], cited.index(s['id']) if s['cited'] else 0))
         return {
@@ -129,8 +128,36 @@ class SearchService:
             'generator': generator,
             'notice': ' '.join(notices) or None,
             'retrieved': [h.id for h in hits],  # in ranked order, for evaluation and debugging
+            'focus': len(focused),
             'checks': {'blocked': None, 'numbersChecked': numbers.checked, 'unsupported': numbers.unsupported},
         }
+
+    def _retrieve(self, question: str, namespace: str, docs: list[Doc], notices: list[str]) -> tuple[list[Hit], str]:
+        retriever = self.store.name
+        try:
+            fresh = self.sync(namespace, docs).get('fresh')
+            hits = self.store.search(namespace, question, self.top_k)
+            if not hits and self.store is not self.local and fresh:
+                # Pinecone makes new records searchable a few seconds after upsert; the first question
+                # after indexing shouldn't come back empty because of it.
+                hits, retriever = self.local.search(namespace, question, self.top_k), 'local'
+                notices.append('Pinecone is still indexing this account, so the local index answered this one.')
+        except StoreUnavailable as exc:
+            log.warning('vector store unavailable: %s', exc)
+            self._sync(self.local, namespace, docs)
+            hits, retriever = self.local.search(namespace, question, self.top_k), 'local'
+            notices.append(f'{exc} The local index answered instead.')
+        return hits, retriever
+
+    def _focus(self, question: str, focused: list[Doc]) -> list[Hit]:
+        """Every chosen resource, best match first. Past twice top_k only the best matches are kept, so
+        choosing a whole type on a large account doesn't flood the prompt."""
+        store = LocalStore()
+        store.upsert('focus', focused)
+        ranked = store.search('focus', question, len(focused))
+        seen = {h.id for h in ranked}
+        rest = [Hit(d.id, 0.0, d.text, d.fields) for d in focused if d.id not in seen]
+        return (ranked + rest)[: self.top_k * 2]
 
     @staticmethod
     def _with_overview(hits: list[Hit], docs: list[Doc]) -> list[Hit]:
@@ -151,7 +178,7 @@ class SearchService:
 def _blocked(verdict: guardrails.Verdict, retriever: str, generator: str = 'guardrail', retrieved=()) -> dict:
     return {
         'answer': verdict.message, 'sources': [], 'retriever': retriever, 'generator': generator, 'notice': None,
-        'retrieved': list(retrieved), 'checks': {'blocked': verdict.blocked, 'numbersChecked': 0, 'unsupported': []},
+        'retrieved': list(retrieved), 'focus': 0, 'checks': {'blocked': verdict.blocked, 'numbersChecked': 0, 'unsupported': []},
     }
 
 

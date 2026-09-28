@@ -28,6 +28,11 @@ class LlmCompiler:
         self._client = httpx.Client(timeout=timeout, transport=transport)
 
     def compile(self, english: str) -> Draft | None:
+        # The model was trained only on rules and answers anything with a policy ("hello" became one
+        # named require-greeting). A sentence that names nothing Ward watches is not sent at all; None
+        # tells the caller Ward could not map it, which is the truth.
+        if not prompt.looks_like_rule(english):
+            return None
         family, reference = prompt.retrieve(english)
         try:
             response = self._client.post(f'{self.url}/chat/completions', json={

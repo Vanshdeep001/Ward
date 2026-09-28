@@ -3,8 +3,14 @@
 Nothing here decides whether a candidate is *correct* — 03_verify.py does that, against fixtures
 built from the intent. The teacher only has to be right often enough to be worth filtering.
 
-Two teachers:
+Three teachers:
 
+  --teacher intent      (default, v2) the policy is rendered from the rule's *intent*, through the
+                        template compiler fed a canonical sentence it is known to read. The English can
+                        then be anything — a person's own wording, a paraphrase the templates would
+                        never parse — and still get its correct policy. The compiler's reading of the
+                        canonical sentence must equal the intent exactly, or the rule is skipped; the
+                        verifier then grades the pair as for any other teacher.
   --teacher templates   app.compiler.templates.TemplateCompiler, already in the repo. Free, offline,
                         deterministic. Its candidates are as good as the patterns it knows, so the
                         dataset it produces teaches the model to imitate those patterns.
@@ -14,6 +20,7 @@ Two teachers:
 
 Keep the two as separate runs (--out differs) so the report can compare them.
 
+    python scripts/02_generate.py                      # intent teacher (v2)
     python scripts/02_generate.py --teacher templates
     ANTHROPIC_API_KEY=... python scripts/02_generate.py --teacher api --model claude-sonnet-5
 """
@@ -77,12 +84,75 @@ def _strip_fences(text: str) -> str:
     return text.strip() + '\n'
 
 
-TEACHERS = {'templates': TemplateTeacher, 'api': ApiTeacher}
+class IntentTeacher:
+    """Policy from intent. v1 compiled the rule's own English, so every phrasing the templates could not
+    parse was dropped — including every hand-written seed sentence. Here the wording and the policy are
+    decoupled: the policy depends only on what the rule means."""
+
+    name = 'intent'
+
+    def __init__(self, **_):
+        from pydantic import TypeAdapter
+
+        from app.compiler.templates import TemplateCompiler
+        from app.verifier.intents import Intent
+
+        self.compiler = TemplateCompiler()
+        self.intents = TypeAdapter(Intent)
+        self.cache: dict[str, str | None] = {}
+
+    def write(self, rule: dict) -> str | None:
+        key = json.dumps(rule['intent'], sort_keys=True)
+        if key not in self.cache:
+            self.cache[key] = self._render(rule['intent'])
+        return self.cache[key]
+
+    def _render(self, intent: dict) -> str | None:
+        wanted = self.intents.validate_python(intent).model_dump()
+        for english in canonical(intent):
+            draft = self.compiler.compile(english)
+            if draft is not None and draft.intent is not None and draft.intent.model_dump() == wanted:
+                return draft.policy_yaml
+        return None
+
+
+def canonical(intent: dict) -> list[str]:
+    """Plain sentences the template compiler is known to read, for one intent — tried in order."""
+    kind = intent['kind']
+    if kind == 'ec2-runtime':
+        h = intent['hours']
+        what = 'GPU instance' if intent.get('gpu_only') else 'EC2 instance'
+        ex = ' outside production' if intent.get('exempt_tag') else ''
+        durations = [f'{h:g} hours', f'{round(h * 60)} minutes'] + (['a day'] if h == 24 else []) + (['a week'] if h == 168 else [])
+        return [f'No {what}{ex} may run for more than {d}' for d in durations]
+    if kind == 'require-tag':
+        noun = 'volume' if intent.get('resource') == 'ebs' else 'instance'
+        gpu = 'GPU ' if intent.get('gpu_only') else ''
+        tag = intent['tag']
+        a = 'an' if tag[0].lower() in 'aeiou' else 'a'
+        return [f'Every {gpu}{noun} must have {a} {tag} tag', f'Flag {gpu}{noun}s with no {tag} tag']
+    if kind == 'ebs-unattached':
+        d = intent.get('min_age_days', 0)
+        return ['Flag EBS volumes unattached'] if d == 0 else [f'Flag EBS volumes unattached for more than {d} days']
+    if kind == 'rds-public':
+        return ['No database may be publicly accessible']
+    if kind == 'sg-open-port':
+        return [f'No security group may allow port {intent["port"]} from the internet']
+    if kind == 'instance-type':
+        allowed = intent['allowed']
+        listed = ' and '.join([', '.join(allowed[:-1]), allowed[-1]]) if len(allowed) > 1 else allowed[0]
+        return [f'Only {listed} instances are allowed', f'Instances are restricted to {listed}']
+    if kind == 'region':
+        return [f'No resources outside {intent["region"]}', f'Flag instances running outside {intent["region"]}']
+    return []
+
+
+TEACHERS = {'intent': IntentTeacher, 'templates': TemplateTeacher, 'api': ApiTeacher}
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--teacher', choices=TEACHERS, default='templates')
+    ap.add_argument('--teacher', choices=TEACHERS, default='intent')
     ap.add_argument('--model', default='claude-sonnet-5', help='only used by --teacher api')
     ap.add_argument('--rules', type=Path, default=DEFAULT_IN)
     ap.add_argument('--out', type=Path, default=DEFAULT_OUT)

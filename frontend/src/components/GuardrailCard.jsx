@@ -6,8 +6,57 @@ import { api } from '../api/client.js'
 import { rupees, shortDate } from '../lib/format.js'
 import { Button, Card, Pill } from './ui.jsx'
 
+/* The card was first built against the demo engine. The real API reports the same facts in a different
+   shape — a list of per-policy simulations, an explanation sentence, assumptions as plain text — so it is
+   converted here, once, and everything below reads one shape. Demo-shaped results pass through unchanged. */
+function normalise(raw) {
+  const sim = raw.simulation ?? {}
+  if (!Array.isArray(sim.policies)) return { sources: [], retrieval: null, assumptions: [], ...raw }
+  const policies = sim.policies
+  const matched = policies.flatMap((p) =>
+    (p.matched ?? []).map((m) => ({
+      id: m.id, name: m.name ?? m.id, instanceType: m.detail, runtimeHours: m.running_hours ?? 0, costPerDay: m.cost_per_day ?? 0,
+    })),
+  )
+  const perDay = policies.reduce((sum, p) => sum + (p.cost_per_day || 0), 0)
+  const history = sim.history
+  const funnel = policies[0]?.funnel ?? []
+  return {
+    ...raw,
+    sources: raw.sources ?? [],
+    retrieval: raw.retrieval ?? null,
+    explanation: Array.isArray(raw.explanation)
+      ? raw.explanation
+      : [
+          { label: 'Means', text: raw.explanation ?? '' },
+          { label: 'Watches', text: policies.map((p) => p.resource_label).join(', ') },
+          ...funnel.map((f, i) => ({ label: `Step ${i + 1}`, text: `${f.filter} → ${f.remaining} left` })),
+        ],
+    assumptions: (raw.assumptions ?? []).map((a) =>
+      typeof a === 'string' ? { term: null, interpretation: a, confidence: null, alternatives: [] } : a,
+    ),
+    simulation: {
+      matched,
+      population: policies.reduce((sum, p) => sum + (p.population || 0), 0),
+      resourceType: policies[0]?.resource_label ?? 'resources',
+      breadth: policies.some((p) => p.breadth === 'broad') ? 'broad' : policies.every((p) => p.breadth === 'none') ? 'none' : 'normal',
+      zeroReason: policies.find((p) => p.zero_reason)?.zero_reason ?? null,
+      alertsPerWeek: history?.alerts_per_week ?? null,
+      quietDays: history?.quiet_days ?? null,
+      history: (history?.events ?? []).map((e) => ({ date: e.at, resourceId: e.resource_id, detail: e.name ?? e.policy })),
+      savings: {
+        monthly: perDay * 30,
+        counterfactual: matched.length ? 'what it matches were stopped' : null,
+        lines: matched.map((m) => ({ label: m.name, value: `${rupees(m.costPerDay)}/day`, source: m.instanceType ?? '' })),
+        note: 'The running cost, at on-demand prices, of what this rule matches right now.',
+      },
+    },
+  }
+}
+
 // SRS §28 — consequence first, mechanism on request.
-export default function GuardrailCard({ result, onActivate, activating, activated }) {
+export default function GuardrailCard({ result: raw, onActivate, activating, activated }) {
+  const result = normalise(raw)
   const sim = result.simulation
   const [panel, setPanel] = useState(null)
   const toggle = (name) => setPanel((p) => (p === name ? null : name))
@@ -20,6 +69,12 @@ export default function GuardrailCard({ result, onActivate, activating, activate
         <p className="mt-1 font-display text-2xl font-semibold text-ink">“{result.english}”</p>
         <div className="mt-2 flex flex-wrap gap-2">
           <Pill tone="green"><CheckCircle2 size={12} /> Verified · {result.verifier.fixtures.length}/{result.verifier.fixtures.length} fixtures</Pill>
+          {/* Who wrote it: Ward's fine-tuned model, or the hand-written templates. The verifier is the same either way. */}
+          {result.compiler && (
+            <Pill tone={result.compiler.startsWith('llm') ? 'violet' : 'slate'}>
+              {result.compiler.startsWith('llm') ? `Written by the fine-tuned model (${result.compiler.slice(4)})` : 'Written by templates'}
+            </Pill>
+          )}
           {result.assumptions.length > 0 && <Pill tone="amber"><Info size={12} /> {result.assumptions.length} assumption{result.assumptions.length > 1 && 's'}</Pill>}
         </div>
       </div>
@@ -35,7 +90,12 @@ export default function GuardrailCard({ result, onActivate, activating, activate
         {/* 4. Money */}
         <Metric label="Estimated avoidable" value={sim.savings.monthly ? `${rupees(sim.savings.monthly)}/mo` : '—'} hint={sim.savings.counterfactual ? `if ${sim.savings.counterfactual}` : 'no direct saving'} tone="green" />
         {/* 5. Alert load */}
-        <Metric label="Alert load" value={`~${sim.alertsPerWeek}/week`} hint={`quiet on ${sim.quietDays} of 30 days`} tone={sim.alertsPerWeek > 7 ? 'amber' : 'slate'} />
+        <Metric
+          label="Alert load"
+          value={sim.alertsPerWeek != null ? `~${sim.alertsPerWeek}/week` : `${sim.matched.length} now`}
+          hint={sim.quietDays != null ? `quiet on ${sim.quietDays} of 30 days` : 'would alert on each of these'}
+          tone={sim.alertsPerWeek > 7 ? 'amber' : 'slate'}
+        />
       </div>
 
       <div className="space-y-4 px-5 py-4">
@@ -104,9 +164,11 @@ export default function GuardrailCard({ result, onActivate, activating, activate
         <Disclosure icon={CheckCircle2} title="Verifier report" open={panel === 'verify'} onToggle={() => toggle('verify')}>
           <VerifierReport verifier={result.verifier} />
         </Disclosure>
-        <Disclosure icon={FileSearch} title={`Sources Ward used (${result.sources.length})`} open={panel === 'sources'} onToggle={() => toggle('sources')}>
-          <SourcePanel sources={result.sources} retrieval={result.retrieval} />
-        </Disclosure>
+        {result.sources.length > 0 && result.retrieval && (
+          <Disclosure icon={FileSearch} title={`Sources Ward used (${result.sources.length})`} open={panel === 'sources'} onToggle={() => toggle('sources')}>
+            <SourcePanel sources={result.sources} retrieval={result.retrieval} />
+          </Disclosure>
+        )}
         <Disclosure icon={Code2} title="View YAML" open={panel === 'yaml'} onToggle={() => toggle('yaml')}>
           <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 font-mono text-xs leading-relaxed text-slate-100">{result.yaml}</pre>
         </Disclosure>
@@ -173,13 +235,13 @@ function PolicyExplain({ result }) {
         ))}
       </dl>
       {result.assumptions.map((a) => (
-        <div key={a.term} className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-amber-200">
+        <div key={a.term ?? a.interpretation} className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-amber-200">
           <p>
             <AlertTriangle size={14} className="mr-1 inline" />
-            Ward assumed <strong>“{a.term}”</strong> means {a.interpretation}{' '}
-            <span className="text-xs text-amber-700">({Math.round(a.confidence * 100)}% confident)</span>
+            {a.term ? <>Ward assumed <strong>“{a.term}”</strong> means {a.interpretation}</> : a.interpretation}{' '}
+            {a.confidence != null && <span className="text-xs text-amber-700">({Math.round(a.confidence * 100)}% confident)</span>}
           </p>
-          {a.alternatives.length > 0 && <p className="mt-1 text-xs text-amber-800">Other reading: {a.alternatives.join('; ')}</p>}
+          {a.alternatives?.length > 0 && <p className="mt-1 text-xs text-amber-800">Other reading: {a.alternatives.join('; ')}</p>}
         </div>
       ))}
     </div>

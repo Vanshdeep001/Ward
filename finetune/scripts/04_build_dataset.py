@@ -87,6 +87,26 @@ def pinned_groups(folder: Path, pairs: list[dict]) -> dict[str, set[str]]:
     return {'train': train, 'val': val, 'test_holdout': everything - train - val}
 
 
+def extended_groups(folder: Path, pairs: list[dict]) -> dict[str, set[str]]:
+    """Grow a dataset without disturbing the split an earlier model was trained on.
+
+    Every group the earlier model saw keeps its place — train stays train, val stays val, and its
+    holdout groups stay in the holdout, so that holdout is still clean for both models and they can be
+    compared on it. Only groups that are new are split, stratified by family as usual.
+    """
+    def groups_in(name: str) -> set[str]:
+        path = folder / f'{name}.jsonl'
+        if not path.exists():
+            raise SystemExit(f'--extend-from: {path} not found.')
+        return {json.loads(line)['meta']['group'] for line in path.read_text(encoding='utf-8').splitlines() if line.strip()}
+
+    old = {name: groups_in(name) for name in ('train', 'val', 'test_holdout')}
+    everything_old = set().union(*old.values())
+    new_pairs = [p for p in pairs if p['group'] not in everything_old]
+    fresh = split_groups(new_pairs) if new_pairs else {'train': set(), 'val': set(), 'test_holdout': set()}
+    return {name: old[name] | fresh[name] for name in old}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--pairs', type=Path, default=DEFAULT_IN)
@@ -95,10 +115,20 @@ def main() -> None:
     ap.add_argument('--keep-from', type=Path, default=None,
                     help='a folder holding the train.jsonl and val.jsonl a model was actually trained on. '
                          'Their groups are kept exactly; every other group becomes the holdout.')
+    ap.add_argument('--extend-from', type=Path, default=None,
+                    help='a folder holding the train/val/test_holdout.jsonl of an earlier model. Its groups keep '
+                         'their split; only groups new since then are split.')
     args = ap.parse_args()
+    if args.keep_from and args.extend_from:
+        raise SystemExit('use --keep-from or --extend-from, not both')
 
     pairs = [json.loads(line) for line in args.pairs.read_text(encoding='utf-8').splitlines() if line.strip()]
-    assignment = pinned_groups(args.keep_from, pairs) if args.keep_from else split_groups(pairs)
+    if args.keep_from:
+        assignment = pinned_groups(args.keep_from, pairs)
+    elif args.extend_from:
+        assignment = extended_groups(args.extend_from, pairs)
+    else:
+        assignment = split_groups(pairs)
     args.out.mkdir(parents=True, exist_ok=True)
 
     buckets: dict[str, list[dict]] = {'train': [], 'val': [], 'test_holdout': []}

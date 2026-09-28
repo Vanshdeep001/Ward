@@ -29,6 +29,13 @@ splits and fails loudly if one does.
 
 Families are stratified, so each split contains the same mix of rule types.
 
+## What is in here now: v2
+
+Built with `04_build_dataset.py --extend-from data/splits_v1`: 1,254 train / 224 val / 621 holdout
+rows. Every group v1 was trained on is still in train, v1's val groups are still in val, and v1's 11
+holdout groups are still in the holdout; only the 131 seeds new in v2 were split. v1's own files are
+in `data/splits_v1/`.
+
 ## Regenerating
 
 ```bash

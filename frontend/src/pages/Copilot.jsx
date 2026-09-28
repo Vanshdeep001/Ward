@@ -1,53 +1,33 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import {
-  AlertTriangle, ArrowRight, ArrowUp, Check, ChevronDown, Copy, Cpu, Database, ExternalLink, Filter, HardDrive,
-  Layers, Network, Search, Server, ShieldAlert, ShieldCheck, Sparkles, TrendingUp, UserX, Wallet,
-} from 'lucide-react'
+import { ArrowRight, ArrowUp, Check, ChevronDown, Copy, Crosshair, Database, ExternalLink, HardDrive, Info, Network, Search, Server, ShieldCheck, X } from 'lucide-react'
 import { api } from '../api/client.js'
-import { rupees } from '../lib/format.js'
-import { Aura, WardMark } from '../components/ui.jsx'
+import { useResources } from '../api/hooks.js'
+import { ago, rupees } from '../lib/format.js'
 
-/* Ask Ward. A question goes through a pipeline — screened, searched, answered, its figures checked —
-   and the page shows that pipeline instead of hiding it: while Ward works, the steps light up in turn;
-   under every answer, the same steps say what actually happened. Resources the answer relies on are
-   shown as cards; what else matched waits behind a toggle. */
+/* Ask Ward, set like an interview. The page leads with what Ward can see, in numbers. Before the first
+   question, the questions people ask are an index to pick from. After it, every exchange is a spread:
+   the question as a serif headline marked Q., the answer beneath it marked A., with the resources it
+   used and how it was found. No bubbles, no avatars — the type carries it. */
 
 const STARTERS = [
-  { q: 'What is currently costing me the most?', label: 'Spend', icon: Wallet, aura: 'arc' },
-  { q: 'Which resources have no owner?', label: 'Ownership', icon: UserX, aura: 'coral' },
-  { q: 'Is anything open to the internet?', label: 'Exposure', icon: ShieldAlert, aura: 'peach' },
-  { q: 'Are any disks sitting unused?', label: 'Waste', icon: HardDrive, aura: 'lilac' },
-  { q: 'Why did my bill go up?', label: 'Bill', icon: TrendingUp, aura: 'pink' },
-  { q: 'Tell me about my most expensive server', label: 'Deep dive', icon: Server, aura: 'peri' },
+  'What is currently costing me the most?',
+  'Show me my running servers',
+  'Why did my bill go up?',
+  'Which resources have no owner?',
+  'Is anything open to the internet?',
 ]
-
-const KIND = {
-  ec2: { icon: Server, label: 'Instance', color: '#3139fb' },
-  rds: { icon: Database, label: 'Database', color: '#b79bff' },
-  ebs: { icon: HardDrive, label: 'Volume', color: '#8e96ff' },
-  nat: { icon: Network, label: 'NAT gateway', color: '#ffb48f' },
-  sg: { icon: ShieldCheck, label: 'Security group', color: '#f7827d' },
-}
-
-const INTENT = {
-  SEARCH: { label: 'Search', aura: 'arc' },
-  ANSWER: { label: 'Answer', aura: 'peri' },
-  ACT: { label: 'Draft rule', aura: 'amber' },
-  REFUSE: { label: 'Read-only', aura: 'lilac' },
-}
-
-const THINKING = ['Checking the question', 'Searching your inventory', 'Ranking what matched', 'Writing the answer', 'Checking every figure']
 
 export default function Copilot() {
   const [messages, setMessages] = useState([])
   const [state, setState] = useState({})
+  const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
+  const [focus, setFocus] = useState(null) // one resource to ask about, or null for the whole account
   const bottom = useRef(null)
   const [params, setParams] = useSearchParams()
   const asked = useRef(false)
-  const status = useQuery({ queryKey: ['search-status'], queryFn: api.searchStatus, staleTime: 60_000 })
+  const { data: inventory } = useResources()
 
   // A question typed into the sidebar's "Ask Ward" bar arrives as ?q=.
   useEffect(() => {
@@ -61,212 +41,368 @@ export default function Copilot() {
 
   useEffect(() => {
     // Braces matter: scrollIntoView returns a Promise in current Chrome, and React would treat it as a cleanup function.
-    bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [messages, busy])
 
   async function send(text) {
     const msg = text.trim()
     if (!msg || busy) return
-    setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'user', text: msg }])
+    setInput('')
+    setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'user', text: msg, focus }])
     setBusy(true)
     try {
-      const res = await api.chat(msg, state)
+      const res = await api.chat(msg, state, focus ? [focus.id] : [])
       setMessages((m) => [...m, res.message])
       setState(res.state)
-    } catch (e) {
-      setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'ward', intent: 'ANSWER', text: `Something went wrong: ${e.message}`, failed: true }])
     } finally {
       setBusy(false)
     }
   }
 
-  const empty = messages.length === 0
-
   return (
     <div className="flex h-[calc(100vh-9rem)] flex-col md:h-[calc(100vh-6rem)]">
-      <Header compact={!empty} status={status.data} />
+      <Hero items={inventory?.items ?? []} focus={focus} />
 
-      <div className="scroll-quiet -mx-2 flex-1 overflow-y-auto px-2 pb-6">
-        {empty ? (
-          <Starters onPick={send} />
-        ) : (
-          <div className="mx-auto max-w-4xl space-y-7 pt-2">
-            {messages.map((m) => (m.role === 'user' ? <UserBubble key={m.id} text={m.text} /> : <WardMessage key={m.id} m={m} onSend={send} />))}
-            {busy && <Thinking status={status.data} />}
+      {messages.length === 0 ? (
+        <Stickers onPick={send} />
+      ) : (
+        <div className="scroll-quiet relative flex-1 overflow-y-auto rounded-4xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgb(15_23_42/0.04),0_30px_60px_-44px_rgb(23_23_60/0.5)]">
+          <div className="mx-auto max-w-3xl px-6 py-8 md:px-10">
+            {messages.map((m, i) => (
+              <Fragment key={m.id}>
+                {m.role === 'user' && i > 0 && <hr className="my-9 border-slate-100" />}
+                {m.role === 'user' ? <Question m={m} /> : <Answer m={m} onSend={send} />}
+              </Fragment>
+            ))}
+            {busy && <Thinking focus={focus} />}
             <div ref={bottom} />
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      <Composer onSend={send} busy={busy} />
+      <form
+        className="mt-4"
+        onSubmit={(e) => {
+          e.preventDefault()
+          send(input)
+        }}
+      >
+        <div className="flex items-center gap-2 rounded-[28px] border border-slate-200/80 bg-white p-2 shadow-[0_1px_2px_rgb(15_23_42/0.04),0_20px_44px_-28px_rgb(23_23_60/0.5)] transition focus-within:border-arc-300 focus-within:shadow-[0_0_0_5px_rgb(49_57_251/0.08),0_20px_44px_-28px_rgb(49_57_251/0.5)]">
+          <ResourceToggle value={focus} onChange={setFocus} />
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={focus ? `Ask about ${focus.name}…` : 'Ask anything…'}
+            className="min-w-0 flex-1 bg-transparent px-3 py-2 font-display text-[1.3rem] font-medium tracking-tight text-ink outline-none placeholder:text-slate-300"
+          />
+          <button
+            type="submit"
+            disabled={!input.trim() || busy}
+            aria-label="Send"
+            className="grid h-13 w-13 shrink-0 place-items-center rounded-full bg-arc-600 text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.2),0_12px_24px_-10px_rgb(49_57_251/0.8)] transition hover:bg-arc-700 active:scale-95 disabled:bg-slate-200 disabled:shadow-none"
+          >
+            <ArrowUp size={20} strokeWidth={2.5} />
+          </button>
+        </div>
+      </form>
     </div>
   )
 }
 
-/* ── Header ───────────────────────────────────────────────────────────────── */
+/* ── The headline ─────────────────────────────────────────────────────────── */
 
-function Header({ compact, status }) {
+function Hero({ items, focus }) {
   return (
-    <header className={`flex flex-wrap items-end justify-between gap-x-8 gap-y-4 transition-all duration-500 ${compact ? 'mb-4' : 'mb-8'}`}>
-      <div>
-        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Ask Ward · read-only, grounded in your account</p>
-        <h1 className={`mt-3 font-display font-semibold leading-[1.02] tracking-tight text-ink transition-all duration-500 ${compact ? 'text-[2rem]' : 'text-[clamp(2.4rem,5vw,3.6rem)]'}`}>
-          Ask your account <span className="bg-gradient-to-r from-arc-600 via-[#8e6bff] to-coral-500 bg-clip-text text-transparent">anything.</span>
-        </h1>
-      </div>
-      {status && <Engine status={status} />}
+    <header className="mb-6">
+      <h1 className="max-w-3xl font-display text-[clamp(2.1rem,4.4vw,3.3rem)] font-semibold leading-[1.03] tracking-tight text-ink">
+        {focus ? (
+          <>Asking about <span className="text-arc-600">{focus.name}</span>.</>
+        ) : (
+          <>Ask anything about your <span className="text-arc-600">{items.length || '—'}</span> resources.</>
+        )}
+      </h1>
     </header>
   )
 }
 
-// What will answer: the retriever, the model, how much is indexed. A live dot, not a spinner.
-function Engine({ status }) {
-  const docs = Object.values(status.indexed ?? {}).reduce((s, n) => s + n, 0)
-  const vector = status.retriever === 'pinecone'
-  const model = status.generator !== 'extractive'
-  return (
-    <div className="group/aura relative flex items-center gap-4 overflow-hidden rounded-2xl border border-slate-200/70 bg-white px-4 py-3 shadow-[0_1px_2px_rgb(15_23_42/0.04),0_14px_30px_-22px_rgb(23_23_60/0.5)]">
-      <span className="relative flex h-2.5 w-2.5">
-        <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/60 [animation-duration:2.4s]" />
-        <span className="relative h-2.5 w-2.5 rounded-full bg-emerald-500" />
-      </span>
-      <EngineStat label="Search" value={vector ? 'Pinecone' : 'Local index'} />
-      <span className="h-7 w-px bg-slate-200" />
-      <EngineStat label="Answers" value={model ? status.generator.split('/').pop() : 'Matches only'} />
-      {docs > 0 && (
-        <>
-          <span className="h-7 w-px bg-slate-200" />
-          <EngineStat label="Indexed" value={`${docs} docs`} />
-        </>
-      )}
-      <Aura color="arc" />
-    </div>
-  )
-}
+/* ── Before the first question ───────────────────────────────────────────── */
 
-function EngineStat({ label, value }) {
-  return (
-    <div className="leading-tight">
-      <p className="text-[9.5px] font-bold uppercase tracking-[0.16em] text-slate-400">{label}</p>
-      <p className="mt-0.5 text-[13px] font-semibold text-ink">{value}</p>
-    </div>
-  )
-}
+// The questions people ask, as speech-bubble stickers on the page itself: pastel, a little tilted, like
+// notes stuck to a board. Each straightens and lifts when pointed at.
+const STICKERS = [
+  { bg: '#eef0ff', ring: '#c6c9ff', tilt: -2.2 },
+  { bg: '#fdeef5', ring: '#f5c6dc', tilt: 1.6 },
+  { bg: '#fff1e8', ring: '#ffd2bd', tilt: -1.2 },
+  { bg: '#f3edff', ring: '#d9c9ff', tilt: 2.0 },
+  { bg: '#eaf8f2', ring: '#bfe8d5', tilt: -1.6 },
+]
 
-/* ── Empty state ──────────────────────────────────────────────────────────── */
-
-function Starters({ onPick }) {
+function Stickers({ onPick }) {
   return (
-    <div className="pt-2">
-      <p className="mb-4 text-[13px] text-slate-500">Start with one of these, or type your own below.</p>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {STARTERS.map((s, i) => {
-          const Icon = s.icon
+    <div className="flex flex-1 flex-col items-center justify-center pb-6">
+      <p className="animate-rise text-[12px] font-semibold text-slate-400">Start with one of these —</p>
+      <div className="mt-6 flex max-w-4xl flex-wrap items-center justify-center gap-x-5 gap-y-6 px-4">
+        {STARTERS.map((q, i) => {
+          const s = STICKERS[i % STICKERS.length]
           return (
             <button
-              key={s.q}
+              key={q}
               type="button"
-              onClick={() => onPick(s.q)}
-              className="animate-rise group/aura relative flex min-h-[132px] flex-col justify-between overflow-hidden rounded-3xl border border-slate-200/70 bg-white p-5 text-left shadow-[0_1px_2px_rgb(15_23_42/0.04),0_20px_44px_-34px_rgb(23_23_60/0.45)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_1px_2px_rgb(15_23_42/0.04),0_26px_50px_-28px_rgb(23_23_60/0.5)]"
-              style={{ animationDelay: `${i * 60}ms` }}
+              onClick={() => onPick(q)}
+              className="animate-rise group relative"
+              style={{ animationDelay: `${80 + i * 70}ms` }}
             >
-              <span className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-400">{s.label}</span>
-              <span className="mt-3 max-w-[85%] font-display text-[1.3rem] font-semibold leading-snug tracking-tight text-ink">{s.q}</span>
-              <span className="mt-3 inline-flex items-center gap-1 text-[12px] font-bold text-arc-600 opacity-0 transition duration-300 group-hover/aura:translate-x-0.5 group-hover/aura:opacity-100">
-                Ask <ArrowRight size={13} />
+              <span
+                className="relative block rounded-[26px] px-6 py-3.5 font-display text-[clamp(1.15rem,2vw,1.45rem)] font-semibold tracking-tight text-ink shadow-[0_14px_30px_-20px_rgb(23_23_60/0.45)] ring-1 ring-inset rotate-(--tilt) transition duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:-translate-y-1.5 group-hover:rotate-0 group-hover:shadow-[0_24px_44px_-22px_rgb(23_23_60/0.5)]"
+                style={{ background: s.bg, '--tw-ring-color': s.ring, '--tilt': `${s.tilt}deg` }}
+              >
+                {q}
+                {/* the bubble's tail */}
+                <span
+                  aria-hidden
+                  className="absolute -bottom-1.5 h-4 w-4 rotate-45 rounded-[3px]"
+                  style={{ background: s.bg, left: i % 2 ? 'auto' : 28, right: i % 2 ? 28 : 'auto', boxShadow: `inset -1px -1px 0 ${s.ring}` }}
+                />
               </span>
-              <Aura color={s.aura} icon={Icon} />
             </button>
           )
         })}
       </div>
-    </div>
-  )
-}
-
-/* ── The conversation ─────────────────────────────────────────────────────── */
-
-function UserBubble({ text }) {
-  return (
-    <div className="animate-rise flex justify-end">
-      <p className="max-w-[78%] rounded-[26px] rounded-br-lg bg-gradient-to-br from-arc-500 to-arc-700 px-5 py-3 text-[15px] font-medium leading-relaxed text-white shadow-[0_14px_30px_-16px_rgb(49_57_251/0.7)]">
-        {text}
+      <p className="animate-rise mt-8 text-[13px] text-slate-500 [animation-delay:500ms]">
+        Or pick one resource in the bar below, and every answer will be about that resource alone.
       </p>
     </div>
   )
 }
 
-function WardMessage({ m, onSend }) {
-  const intent = INTENT[m.intent] ?? INTENT.ANSWER
-  const sources = m.sources ?? tableSources(m.table)
-  const cited = m.sources ? sources.filter((s) => s.cited) : sources
-  const others = m.sources ? sources.filter((s) => !s.cited) : []
-  const blocked = m.checks?.blocked
+function Thinking({ focus }) {
+  return (
+    <div className="animate-rise mt-9 flex gap-4">
+      <Mark tone="text-arc-600">A.</Mark>
+      <p className="flex items-center gap-2 pt-2 text-[14px] text-slate-500">
+        {[0, 1, 2].map((i) => (
+          <span key={i} className="h-1.5 w-1.5 animate-pulse rounded-full bg-arc-500" style={{ animationDelay: `${i * 180}ms` }} />
+        ))}
+        <span className="ml-1">{focus ? `Reading ${focus.name}…` : 'Reading your inventory…'}</span>
+      </p>
+    </div>
+  )
+}
+
+const Mark = ({ tone, children }) => (
+  <span className={`w-9 shrink-0 font-display text-[1.7rem] font-semibold leading-[1.15] ${tone}`}>{children}</span>
+)
+
+/* ── Choosing one resource to ask about ──────────────────────────────────── */
+
+const KIND = {
+  ec2: { icon: Server, label: 'Instance', color: '#3139fb' },
+  rds: { icon: Database, label: 'Database', color: '#b79bff' },
+  ebs: { icon: HardDrive, label: 'Volume', color: '#8e96ff' },
+  nat: { icon: Network, label: 'NAT gateway', color: '#ffb48f' },
+  sg: { icon: ShieldCheck, label: 'Security group', color: '#f7827d' },
+}
+
+// "All resources" by default; pick one and every question is answered about that resource only.
+function ResourceToggle({ value, onChange }) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const box = useRef(null)
+  const { data } = useResources()
+
+  useEffect(() => {
+    if (!open) return undefined
+    const away = (e) => box.current && !box.current.contains(e.target) && setOpen(false)
+    document.addEventListener('mousedown', away)
+    return () => document.removeEventListener('mousedown', away)
+  }, [open])
+
+  const needle = q.trim().toLowerCase()
+  const items = (data?.items ?? []).filter((r) => KIND[r.type] && (!needle || `${r.name} ${r.id} ${r.type}`.toLowerCase().includes(needle)))
 
   return (
-    <div className="animate-rise flex gap-3.5">
-      <div className="shrink-0 pt-1"><WardMark size={34} /></div>
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`flex h-12 max-w-55 items-center gap-2 rounded-full px-4 text-[13.5px] transition ${
+          value ? 'bg-arc-50 text-arc-700 ring-1 ring-inset ring-arc-200' : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-ink'
+        }`}
+      >
+        {value ? (
+          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: KIND[value.type]?.color }} />
+        ) : (
+          <Crosshair size={15} className="shrink-0" />
+        )}
+        <span className="truncate font-medium">{value ? value.name : 'All resources'}</span>
+        {value ? (
+          <X
+            size={14}
+            className="shrink-0 opacity-60 hover:opacity-100"
+            onClick={(e) => {
+              e.stopPropagation()
+              onChange(null)
+            }}
+          />
+        ) : (
+          <ChevronDown size={14} className="shrink-0 opacity-60" />
+        )}
+      </button>
 
-      <article className="group/aura relative min-w-0 flex-1 overflow-hidden rounded-[28px] border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_rgb(15_23_42/0.04),0_22px_48px_-34px_rgb(23_23_60/0.5)] md:p-6">
-        <header className="mb-3 flex items-center gap-2">
-          <span className="text-[13px] font-bold text-ink">Ward</span>
-          <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.12em] ${blocked ? 'bg-violet-50 text-violet-700' : m.failed ? 'bg-coral-50 text-coral-600' : 'bg-arc-50 text-arc-700'}`}>
-            {blocked ? 'Guardrail' : intent.label}
-          </span>
-        </header>
-
-        <div className="whitespace-pre-line text-[15.5px] leading-[1.7] text-slate-800">
-          {m.sources ? <Cited text={m.text} sources={sources} /> : <Bold text={m.text} />}
+      {open && (
+        <div className="animate-rise absolute bottom-full left-0 z-30 mb-3 w-80 overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_28px_60px_-24px_rgb(23_23_60/0.45)]">
+          <p className="px-4 pb-1 pt-3.5 text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-400">Ask about</p>
+          <div className="border-b border-slate-100 px-3 pb-3 pt-1.5">
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a resource…" className="w-full rounded-xl bg-slate-50 px-3.5 py-2 text-sm outline-none ring-1 ring-inset ring-slate-200/80 focus:bg-white focus:ring-arc-300" />
+          </div>
+          <ul className="scroll-quiet max-h-72 overflow-y-auto p-1.5">
+            <li>
+              <Option active={!value} onClick={() => { onChange(null); setOpen(false) }}>
+                <Crosshair size={14} className="text-slate-400" /> <span className="flex-1">All resources</span>
+              </Option>
+            </li>
+            {items.map((r) => (
+              <li key={r.id}>
+                <Option active={value?.id === r.id} onClick={() => { onChange(r); setOpen(false); setQ('') }}>
+                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-white" style={{ background: KIND[r.type].color }}>
+                    {(() => { const Icon = KIND[r.type].icon; return <Icon size={13} strokeWidth={2.4} /> })()}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-ink">{r.name}</span>
+                    <span className="block truncate font-mono text-[10.5px] text-slate-400">{r.id}</span>
+                  </span>
+                  <span className="shrink-0 text-[11px] text-slate-400">{KIND[r.type].label}</span>
+                </Option>
+              </li>
+            ))}
+            {!items.length && <li className="px-3 py-4 text-center text-xs text-slate-400">No match</li>}
+          </ul>
         </div>
+      )}
+    </div>
+  )
+}
 
-        {cited.length > 0 && <SourceGrid sources={cited} />}
-        {others.length > 0 && cited.length > 0 && <AlsoMatched sources={others} />}
+function Option({ active, onClick, children }) {
+  return (
+    <button type="button" onClick={onClick} className={`flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-sm transition ${active ? 'bg-arc-50' : 'hover:bg-slate-50'}`}>
+      {children}
+      {active && <Check size={14} className="shrink-0 text-arc-600" />}
+    </button>
+  )
+}
 
-        {m.command && <Command command={m.command} consoleUrl={m.consoleUrl} />}
-        {(m.draft || m.draftRule || m.suggestedRule) && <RuleCard m={m} />}
+/* ── An exchange ──────────────────────────────────────────────────────────── */
+
+function Question({ m }) {
+  return (
+    <div className="animate-rise flex gap-4">
+      <Mark tone="text-coral-500">Q.</Mark>
+      <div className="min-w-0">
+        <h2 className="font-display text-[1.7rem] font-semibold leading-[1.15] tracking-tight text-ink">{m.text}</h2>
+        {m.focus && (
+          <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-arc-50 px-2.5 py-1 text-[11.5px] font-semibold text-arc-700">
+            <Crosshair size={11} /> about {m.focus.name}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function Answer({ m, onSend }) {
+  // Only the resources the answer actually uses get cards; a greeting shouldn't come with four.
+  const cited = (m.sources ?? []).filter((s) => s.cited)
+  return (
+    <div className="animate-rise mt-6 flex gap-4">
+      <Mark tone="text-arc-600">A.</Mark>
+      <div className="min-w-0 flex-1 space-y-4 pt-1">
+        <p className="whitespace-pre-line text-[15.5px] leading-[1.75] text-slate-700">
+          {m.sources ? <Cited text={m.text} sources={m.sources} /> : m.text}
+        </p>
+        {cited.length > 0 && <Sources sources={cited} />}
+
+        {m.rows && (
+          <div className="overflow-x-auto rounded-2xl border border-slate-200">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-left text-xs text-slate-500">
+                <tr>{m.columns.map((c) => <th key={c.key} className="px-3 py-2 font-medium">{c.label}</th>)}</tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {m.rows.map((r) => (
+                  <tr key={r.id}>
+                    {m.columns.map((c) => (
+                      <td key={c.key} className={`px-3 py-2 ${c.key === 'id' ? 'font-mono text-xs text-slate-500' : ''} ${c.key === 'perDay' ? 'tabular-nums' : ''}`}>
+                        {c.key === 'perDay' ? rupees(r[c.key]) : r[c.key]}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {m.asOf && <p className="text-xs text-slate-400">Inventory as of {ago(m.asOf)}</p>}
+
+        {m.command && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 rounded-2xl bg-paper px-3.5 py-2.5 ring-1 ring-inset ring-slate-200">
+              <code className="flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">{m.command}</code>
+              <button type="button" onClick={() => navigator.clipboard?.writeText(m.command)} className="text-slate-400 hover:text-ink" title="Copy">
+                <Copy size={14} />
+              </button>
+            </div>
+            {m.consoleUrl && (
+              <a href={m.consoleUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-semibold text-arc-700 hover:underline">
+                Open in AWS console <ExternalLink size={12} />
+              </a>
+            )}
+          </div>
+        )}
+
+        {m.draftRule && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4">
+            <p className="text-xs text-slate-500">Drafted rule</p>
+            <p className="mt-0.5 font-display text-[1.1rem] font-semibold text-ink">“{m.draftRule}”</p>
+            <Link to={`/rules?draft=${encodeURIComponent(m.draftRule)}`} className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-arc-700 hover:underline">
+              Edit, simulate and activate <ArrowRight size={14} />
+            </Link>
+          </div>
+        )}
+
         {m.link && (
-          <Link to={m.link.to} className="mt-4 inline-flex items-center gap-1 text-[13px] font-bold text-arc-700 hover:underline">
+          <Link to={m.link.to} className="inline-flex items-center gap-1 text-sm font-semibold text-arc-700 hover:underline">
             {m.link.label} <ArrowRight size={14} />
           </Link>
         )}
 
-        {m.notice && (
-          <p className="mt-4 flex items-start gap-2 rounded-2xl bg-amber-50/80 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-amber-800 ring-1 ring-inset ring-amber-200/80">
-            <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {m.notice}
-          </p>
-        )}
-
-        {(m.retriever || blocked) && <Trace m={m} cited={cited.length} />}
-
         {m.suggestions && (
-          <div className="mt-4 flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
             {m.suggestions.map((s) => (
-              <button key={s} type="button" onClick={() => onSend(s)} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[12px] font-semibold text-slate-600 transition hover:border-arc-200 hover:bg-arc-50 hover:text-arc-700">
+              <button key={s} type="button" onClick={() => onSend(s)} className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:border-arc-300 hover:text-arc-700">
                 {s}
               </button>
             ))}
           </div>
         )}
-        <Aura color={blocked ? 'lilac' : m.failed ? 'coral' : intent.aura} />
-      </article>
+
+        {(m.retriever || m.checks?.blocked) && <Provenance m={m} />}
+      </div>
     </div>
   )
 }
 
-// The computed answers (spend, the bill) send a table of {id, name, costPerDay}; show them as sources too.
-function tableSources(table) {
-  return (table ?? []).map((r) => ({ id: r.id, name: r.name, costPerDay: r.costPerDay, type: r.id?.startsWith('i-') ? 'ec2' : r.id?.startsWith('vol-') ? 'ebs' : r.id?.startsWith('sg-') ? 'sg' : r.id?.startsWith('nat-') ? 'nat' : 'rds', owner: true }))
-}
+/* ── Search answers ───────────────────────────────────────────────────────── */
 
-// The model cites resources as [id]; each becomes a chip naming the resource.
+// The model cites resources as [id]; each becomes a small chip naming the resource.
 function Cited({ text, sources }) {
   const byId = Object.fromEntries(sources.map((s) => [s.id, s]))
   return text.split(/(\[[^\]\s]+\])/g).map((part, i) => {
     const s = byId[part.slice(1, -1)]
     if (!part.startsWith('[') || !s) return <Bold key={i} text={part} />
     return (
-      <span key={i} className="mx-0.5 inline-flex translate-y-[-1px] items-center gap-1.5 rounded-lg bg-white px-2 py-0.5 align-middle font-mono text-[11.5px] font-semibold text-ink shadow-[0_1px_2px_rgb(15_23_42/0.06)] ring-1 ring-inset ring-slate-200">
-        <span className="h-2 w-2 rounded-full" style={{ background: KIND[s.type]?.color ?? '#94a3b8' }} />
+      <span key={i} className="mx-0.5 inline-flex items-center gap-1 rounded-md bg-arc-50 px-1.5 py-px align-baseline font-mono text-[11px] font-semibold text-arc-700 ring-1 ring-inset ring-arc-100">
+        <span className="h-1.5 w-1.5 rounded-full" style={{ background: KIND[s.type]?.color ?? '#94a3b8' }} />
         {s.name ?? s.id}
       </span>
     )
@@ -275,231 +411,78 @@ function Cited({ text, sources }) {
 
 // Models write **bold**; show it as bold rather than asterisks.
 function Bold({ text }) {
-  return String(text ?? '').split(/(\*\*[^*]+\*\*)/g).map((p, i) =>
+  return text.split(/(\*\*[^*]+\*\*)/g).map((p, i) =>
     p.startsWith('**') && p.endsWith('**') && p.length > 4 ? <strong key={i} className="font-semibold text-ink">{p.slice(2, -2)}</strong> : p,
   )
 }
 
-function SourceGrid({ sources }) {
+// The resources the answer used.
+function Sources({ sources }) {
   const [all, setAll] = useState(false)
-  const shown = all ? sources : sources.slice(0, 6)
+  const shown = all ? sources : sources.slice(0, 4)
   return (
-    <div className="mt-5">
-      <p className="mb-2.5 text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-400">Resources in this answer</p>
-      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
-        {shown.map((s, i) => <SourceCard key={s.id} s={s} delay={i * 50} />)}
+    <div>
+      <p className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.16em] text-slate-400">Found in your inventory</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {shown.map((s) => {
+          const kind = KIND[s.type] ?? { icon: Search, label: s.type, color: '#94a3b8' }
+          const Icon = kind.icon
+          return (
+            <div key={s.id} className="flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white p-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white" style={{ background: kind.color }}>
+                <Icon size={16} strokeWidth={2.2} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13.5px] font-semibold text-ink">{s.name ?? s.id}</p>
+                <p className="truncate font-mono text-[10.5px] text-slate-400">
+                  {s.id}{s.detail ? ` · ${s.detail}` : ''}{s.region ? ` · ${s.region}` : ''}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className={`text-[12.5px] font-semibold tabular-nums ${s.costPerDay ? 'text-ink' : 'text-slate-400'}`}>
+                  {s.costPerDay ? `${rupees(s.costPerDay)}/d` : 'free'}
+                </p>
+                {!s.owner && <p className="text-[10px] font-bold text-coral-600">no owner</p>}
+              </div>
+            </div>
+          )
+        })}
       </div>
-      {sources.length > 6 && (
-        <button type="button" onClick={() => setAll((v) => !v)} className="mt-2.5 inline-flex items-center gap-1 text-[12px] font-bold text-arc-700 hover:underline">
-          {all ? 'Show fewer' : `Show all ${sources.length}`} <ChevronDown size={13} className={all ? 'rotate-180' : ''} />
+      {sources.length > 4 && (
+        <button type="button" onClick={() => setAll((v) => !v)} className="mt-2 text-[12px] font-semibold text-arc-700 hover:underline">
+          {all ? 'Show fewer' : `Show ${sources.length - 4} more`}
         </button>
       )}
     </div>
   )
 }
 
-function SourceCard({ s, delay = 0 }) {
-  const kind = KIND[s.type] ?? { icon: Layers, label: s.type, color: '#94a3b8' }
-  const Icon = kind.icon
-  return (
-    <div
-      className="animate-rise group/aura relative flex items-center gap-3 overflow-hidden rounded-2xl border border-slate-200/80 bg-paper/60 p-3 transition duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_14px_30px_-20px_rgb(23_23_60/0.5)]"
-      style={{ animationDelay: `${delay}ms` }}
-    >
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-white shadow-[0_8px_18px_-10px_rgb(23_23_60/0.6)]" style={{ background: kind.color }}>
-        <Icon size={17} strokeWidth={2.2} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[14px] font-semibold text-ink">{s.name ?? s.id}</p>
-        <p className="truncate font-mono text-[10.5px] text-slate-400">{s.detail ?? kind.label}{s.region ? ` · ${s.region}` : ''}</p>
-      </div>
-      <div className="shrink-0 text-right leading-tight">
-        <p className={`text-[13px] font-bold tabular-nums ${s.costPerDay ? 'text-ink' : 'text-slate-300'}`}>{s.costPerDay ? rupees(s.costPerDay) : '₹0'}</p>
-        <p className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">a day</p>
-        {!s.owner && <p className="mt-0.5 text-[10px] font-bold text-coral-600">no owner</p>}
-      </div>
-    </div>
-  )
+const BLOCKED = {
+  action: 'Stopped by a guardrail — Ward is read-only',
+  injection: 'Stopped by a guardrail — that looked like an attempt to change Ward’s instructions',
+  'off-topic': 'Stopped by a guardrail — not about your AWS account',
 }
 
-function AlsoMatched({ sources }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="mt-3">
-      <button type="button" onClick={() => setOpen((v) => !v)} className="inline-flex items-center gap-1 text-[12px] font-semibold text-slate-500 hover:text-ink">
-        <Filter size={12} /> {open ? 'Hide' : 'Also matched'} ({sources.length}) <ChevronDown size={13} className={`transition ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {open && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {sources.map((s) => (
-            <span key={s.id} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11.5px] text-slate-600">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ background: KIND[s.type]?.color ?? '#94a3b8' }} />
-              {s.name ?? s.id}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// What actually happened, as the same steps the thinking state shows.
-function Trace({ m, cited }) {
-  const blocked = m.checks?.blocked
-  if (blocked) {
-    const why = { action: 'Ward is read-only', injection: 'looked like an attempt to change Ward’s instructions', 'off-topic': 'not about your AWS account' }[blocked]
+function Provenance({ m }) {
+  if (m.checks?.blocked) {
     return (
-      <div className="mt-5 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-4">
-        <Step ok icon={ShieldCheck} tone="violet">Stopped by a guardrail — {why}</Step>
-      </div>
+      <p className="flex items-center gap-1.5 text-[11px] font-semibold text-violet-700">
+        <ShieldCheck size={12} /> {BLOCKED[m.checks.blocked] ?? 'Stopped by a guardrail'}
+      </p>
     )
   }
-  const unsupported = m.checks?.unsupported ?? []
-  const checked = m.checks?.numbersChecked ?? 0
-  const model = m.generator && m.generator !== 'extractive'
+  const retriever = m.retriever === 'focus' ? `only ${m.focus === 1 ? 'the chosen resource' : `the ${m.focus} chosen resources`}` : m.retriever === 'pinecone' ? 'Pinecone vector search' : 'local keyword search'
+  const generator = m.generator === 'extractive' ? 'no model — matches shown as found' : `answered by ${m.generator}`
   return (
-    <div className="mt-5 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-4">
-      <Step ok icon={ShieldCheck}>Screened</Step>
-      <Chevron />
-      <Step ok icon={Search}>{m.retriever === 'pinecone' ? 'Pinecone' : 'Local index'}{m.sources ? ` · ${m.sources.length} found` : ''}</Step>
-      <Chevron />
-      <Step ok icon={model ? Sparkles : Layers}>{model ? m.generator.split('/').pop() : 'Matches shown'}{cited ? ` · ${cited} cited` : ''}</Step>
-      {model && (
-        <>
-          <Chevron />
-          {unsupported.length ? (
-            <Step icon={AlertTriangle} tone="amber">{unsupported.length} figure{unsupported.length === 1 ? '' : 's'} unverified</Step>
-          ) : (
-            <Step ok icon={Check} tone="green">{checked ? `${checked} figure${checked === 1 ? '' : 's'} verified` : 'Nothing to verify'}</Step>
-          )}
-        </>
+    <div className="space-y-1.5">
+      <p className="flex items-center gap-1.5 text-[11px] text-slate-400">
+        <Search size={11} /> Retrieved with {retriever} · {generator}
+      </p>
+      {m.notice && (
+        <p className="flex items-start gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-[11.5px] text-amber-800 ring-1 ring-inset ring-amber-200">
+          <Info size={12} className="mt-0.5 shrink-0" /> {m.notice}
+        </p>
       )}
     </div>
-  )
-}
-
-function Step({ icon: Icon, tone = 'slate', children }) {
-  const tones = {
-    slate: 'bg-slate-50 text-slate-600 ring-slate-200/80',
-    green: 'bg-emerald-50 text-emerald-700 ring-emerald-200/80',
-    amber: 'bg-amber-50 text-amber-800 ring-amber-200/80',
-    violet: 'bg-violet-50 text-violet-700 ring-violet-200/80',
-  }
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-semibold ring-1 ring-inset ${tones[tone]}`}>
-      <Icon size={12} /> {children}
-    </span>
-  )
-}
-
-const Chevron = () => <span className="text-[11px] text-slate-300">→</span>
-
-function Command({ command, consoleUrl }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <div className="mt-4 space-y-2">
-      <div className="flex items-center gap-2 rounded-2xl bg-paper px-3.5 py-2.5 ring-1 ring-inset ring-slate-200">
-        <code className="flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">{command}</code>
-        <button
-          type="button"
-          onClick={() => { navigator.clipboard?.writeText(command); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
-          className="rounded-lg p-1 text-slate-400 transition hover:bg-white hover:text-ink"
-          title="Copy"
-        >
-          {copied ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
-        </button>
-      </div>
-      {consoleUrl && (
-        <a href={consoleUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] font-bold text-arc-700 hover:underline">
-          Open in AWS console <ExternalLink size={12} />
-        </a>
-      )}
-    </div>
-  )
-}
-
-function RuleCard({ m }) {
-  const english = m.draft?.english ?? m.draftRule ?? m.suggestedRule?.english
-  const note = m.draft ? `Verified · matches ${m.draft.matched} resource${m.draft.matched === 1 ? '' : 's'} now` : m.suggestedRule?.because
-  return (
-    <div className="mt-4 rounded-2xl bg-gradient-to-br from-amber-50 to-[#fff4ec] p-4 ring-1 ring-inset ring-amber-200/80">
-      <p className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-amber-700">Suggested guardrail</p>
-      <p className="mt-1.5 font-display text-[1.15rem] font-semibold leading-snug text-ink">“{english}”</p>
-      {note && <p className="mt-1 text-[12px] text-slate-500">{note}</p>}
-      <Link to={`/rules?draft=${encodeURIComponent(english)}`} className="mt-3 inline-flex items-center gap-1 rounded-full bg-ink px-3.5 py-1.5 text-[12px] font-bold text-white transition hover:bg-black">
-        Simulate and activate <ArrowRight size={13} />
-      </Link>
-    </div>
-  )
-}
-
-/* ── While Ward works ─────────────────────────────────────────────────────── */
-
-// The pipeline's steps, lit in turn. Timed, not reported — the request is one call — so it stops at the
-// last step and waits there rather than claiming to be done.
-function Thinking({ status }) {
-  const [step, setStep] = useState(0)
-  useEffect(() => {
-    const timers = [350, 1100, 2000, 3600].map((ms, i) => setTimeout(() => setStep(i + 1), ms))
-    return () => timers.forEach(clearTimeout)
-  }, [])
-  const steps = THINKING.map((s, i) => (i === 1 && status?.retriever === 'pinecone' ? 'Searching Pinecone' : s))
-  return (
-    <div className="animate-rise flex gap-3.5">
-      <div className="shrink-0 pt-1"><WardMark size={34} /></div>
-      <div className="group/aura relative flex-1 overflow-hidden rounded-[28px] border border-slate-200/70 bg-white p-5 shadow-[0_22px_48px_-34px_rgb(23_23_60/0.5)] md:p-6">
-        <ol className="space-y-2.5">
-          {steps.map((s, i) => (
-            <li key={s} className={`flex items-center gap-3 text-[13.5px] transition-all duration-500 ${i > step ? 'opacity-30' : 'opacity-100'}`}>
-              <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full transition-colors duration-500 ${i < step ? 'bg-emerald-500 text-white' : i === step ? 'bg-arc-600 text-white' : 'bg-slate-100'}`}>
-                {i < step ? <Check size={11} strokeWidth={3} /> : i === step ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" /> : null}
-              </span>
-              <span className={i === step ? 'font-semibold text-ink' : 'text-slate-500'}>{s}</span>
-            </li>
-          ))}
-        </ol>
-        <Aura color="arc" icon={Cpu} size={100} />
-      </div>
-    </div>
-  )
-}
-
-/* ── Composer ─────────────────────────────────────────────────────────────── */
-
-function Composer({ onSend, busy }) {
-  const [input, setInput] = useState('')
-  const ready = input.trim() && !busy
-  return (
-    <form
-      className="mx-auto w-full max-w-4xl pt-2"
-      onSubmit={(e) => {
-        e.preventDefault()
-        if (!ready) return
-        onSend(input)
-        setInput('')
-      }}
-    >
-      {/* A gradient hairline around a white field: the aurora, drawn as a border. */}
-      <div className="rounded-[26px] bg-gradient-to-r from-arc-300 via-[#f5a3c7] to-[#ffb48f] p-[1.5px] shadow-[0_20px_44px_-26px_rgb(49_57_251/0.55)] transition focus-within:from-arc-500 focus-within:via-[#e98bbd] focus-within:to-coral-400">
-        <div className="flex items-center gap-2 rounded-[24.5px] bg-white py-2 pl-5 pr-2">
-          <Sparkles size={17} className="shrink-0 text-arc-500" />
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask about costs, owners, exposure, a resource by name…"
-            className="min-w-0 flex-1 bg-transparent py-2 text-[15px] text-ink outline-none placeholder:text-slate-400"
-          />
-          <button
-            type="submit"
-            disabled={!ready}
-            aria-label="Send"
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-br from-arc-500 to-arc-700 text-white shadow-[0_10px_22px_-10px_rgb(49_57_251/0.8)] transition hover:scale-105 active:scale-95 disabled:scale-100 disabled:from-slate-200 disabled:to-slate-300 disabled:shadow-none"
-          >
-            <ArrowUp size={18} strokeWidth={2.5} />
-          </button>
-        </div>
-      </div>
-      <p className="mt-2 text-center text-[11px] text-slate-400">Answers come only from your account’s data, and cite the resources they use. Ward never changes anything.</p>
-    </form>
   )
 }

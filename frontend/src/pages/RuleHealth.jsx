@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertOctagon, CheckCircle2, Code2, EyeOff, Gauge, GitMerge, Layers, RefreshCw, Sparkles, Zap } from 'lucide-react'
+import { AlertOctagon, CheckCircle2, Code2, EyeOff, Gauge, GitMerge, Layers, Lightbulb, RefreshCw, Zap } from 'lucide-react'
 import { useConflicts, useRules } from '../api/hooks.js'
 import { Aura, Loading } from '../components/ui.jsx'
 import YamlBlock from '../components/YamlBlock.jsx'
@@ -320,7 +320,7 @@ function Diagnosis({ c, applied, onApply }) {
 
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-emerald-50/70 px-4 py-3 ring-1 ring-inset ring-emerald-200/70">
           <p className="flex min-w-0 flex-1 items-start gap-2 text-[13.5px] text-emerald-900">
-            <Sparkles size={15} className="mt-0.5 shrink-0 text-emerald-600" />
+            <Lightbulb size={15} className="mt-0.5 shrink-0 text-emerald-600" />
             {c.suggestion}
           </p>
           {applied ? (

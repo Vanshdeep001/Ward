@@ -67,3 +67,134 @@
 {"id": "reg-04", "family": "region", "english": "We only operate in ap-southeast-1", "intent": {"kind": "region", "region": "ap-southeast-1"}}
 {"id": "reg-05", "family": "region", "english": "Compute outside eu-central-1 is a mistake", "intent": {"kind": "region", "region": "eu-central-1"}}
 {"id": "reg-06", "family": "region", "english": "Nothing should run in a region other than us-west-2", "intent": {"kind": "region", "region": "us-west-2"}}
+{"id": "rt-16", "family": "ec2-runtime", "english": "Stop GPU instances that run longer than 6 hours", "intent": {"kind": "ec2-runtime", "hours": 6, "gpu_only": true}}
+{"id": "rt-17", "family": "ec2-runtime", "english": "No accelerator should stay on for more than 3 hours", "intent": {"kind": "ec2-runtime", "hours": 3, "gpu_only": true}}
+{"id": "rt-18", "family": "ec2-runtime", "english": "Our GPU machines keep getting left on overnight — cap them at 10 hours", "intent": {"kind": "ec2-runtime", "hours": 10, "gpu_only": true}}
+{"id": "rt-19", "family": "ec2-runtime", "english": "Please flag any g5 or p3 box that's been running for over 4 hours", "intent": {"kind": "ec2-runtime", "hours": 4, "gpu_only": true}}
+{"id": "rt-20", "family": "ec2-runtime", "english": "Dev servers shouldn't be up for more than 16 hours at a stretch", "intent": {"kind": "ec2-runtime", "hours": 16, "gpu_only": false}}
+{"id": "rt-21", "family": "ec2-runtime", "english": "If an instance has been on for 2 days, tell me", "intent": {"kind": "ec2-runtime", "hours": 48, "gpu_only": false}}
+{"id": "rt-22", "family": "ec2-runtime", "english": "Limit every EC2 machine to 20 hours of continuous runtime", "intent": {"kind": "ec2-runtime", "hours": 20, "gpu_only": false}}
+{"id": "rt-23", "family": "ec2-runtime", "english": "Spot any server that has been running for over a week", "intent": {"kind": "ec2-runtime", "hours": 168, "gpu_only": false}}
+{"id": "rt-24", "family": "ec2-runtime", "english": "GPU experiments must wrap up in 90 minutes", "intent": {"kind": "ec2-runtime", "hours": 1.5, "gpu_only": true}}
+{"id": "rt-25", "family": "ec2-runtime", "english": "Graphics instances should never run past 5 hours", "intent": {"kind": "ec2-runtime", "hours": 5, "gpu_only": true}}
+{"id": "rt-26", "family": "ec2-runtime", "english": "Anything not tagged as production must shut down within 6 hours", "intent": {"kind": "ec2-runtime", "hours": 6, "gpu_only": false, "exempt_tag": "Environment"}}
+{"id": "rt-27", "family": "ec2-runtime", "english": "Except for production, no machine should run over 12 hours", "intent": {"kind": "ec2-runtime", "hours": 12, "gpu_only": false, "exempt_tag": "Environment"}}
+{"id": "rt-28", "family": "ec2-runtime", "english": "A deep learning instance running beyond 24 hours is too long", "intent": {"kind": "ec2-runtime", "hours": 24, "gpu_only": true}}
+{"id": "rt-29", "family": "ec2-runtime", "english": "Make sure no VM runs longer than 30 hours", "intent": {"kind": "ec2-runtime", "hours": 30, "gpu_only": false}}
+{"id": "rt-30", "family": "ec2-runtime", "english": "I want to know when any EC2 instance passes the 4 hour mark", "intent": {"kind": "ec2-runtime", "hours": 4, "gpu_only": false}}
+{"id": "rt-31", "family": "ec2-runtime", "english": "Keep GPU usage to sessions under 2 hours", "intent": {"kind": "ec2-runtime", "hours": 2, "gpu_only": true}}
+{"id": "rt-32", "family": "ec2-runtime", "english": "Instances should be switched off after 9 hours", "intent": {"kind": "ec2-runtime", "hours": 9, "gpu_only": false}}
+{"id": "rt-33", "family": "ec2-runtime", "english": "No machine learning box may run for more than a day", "intent": {"kind": "ec2-runtime", "hours": 24, "gpu_only": true}}
+{"id": "rt-34", "family": "ec2-runtime", "english": "Tell me about accelerators that have been running over 72 hours", "intent": {"kind": "ec2-runtime", "hours": 72, "gpu_only": true}}
+{"id": "rt-35", "family": "ec2-runtime", "english": "Compute left on for more than 36 hours is waste", "intent": {"kind": "ec2-runtime", "hours": 36, "gpu_only": false}}
+{"id": "rt-36", "family": "ec2-runtime", "english": "Non-prod instances can't run more than 4 hours", "intent": {"kind": "ec2-runtime", "hours": 4, "gpu_only": false, "exempt_tag": "Environment"}}
+{"id": "rt-37", "family": "ec2-runtime", "english": "p3 and g4dn instances must be stopped after 3 hours", "intent": {"kind": "ec2-runtime", "hours": 3, "gpu_only": true}}
+{"id": "rt-38", "family": "ec2-runtime", "english": "Report EC2 instances with an uptime above 14 hours", "intent": {"kind": "ec2-runtime", "hours": 14, "gpu_only": false}}
+{"id": "rt-39", "family": "ec2-runtime", "english": "Nobody should leave a GPU running longer than 8 hours", "intent": {"kind": "ec2-runtime", "hours": 8, "gpu_only": true}}
+{"id": "rt-40", "family": "ec2-runtime", "english": "Servers running continuously for 3 days need a review", "intent": {"kind": "ec2-runtime", "hours": 72, "gpu_only": false}}
+{"id": "tag-13", "family": "require-tag", "english": "Every server must be labelled with an Owner tag", "intent": {"kind": "require-tag", "tag": "Owner", "resource": "ec2"}}
+{"id": "tag-14", "family": "require-tag", "english": "Volumes need a CostCentre tag for billing", "intent": {"kind": "require-tag", "tag": "CostCentre", "resource": "ebs"}}
+{"id": "tag-15", "family": "require-tag", "english": "Flag instances that don't say which Team they belong to with a Team tag", "intent": {"kind": "require-tag", "tag": "Team", "resource": "ec2"}}
+{"id": "tag-16", "family": "require-tag", "english": "Any disk without an Environment tag should be reported", "intent": {"kind": "require-tag", "tag": "Environment", "resource": "ebs"}}
+{"id": "tag-17", "family": "require-tag", "english": "GPU boxes must have a Project tag", "intent": {"kind": "require-tag", "tag": "Project", "resource": "ec2", "gpu_only": true}}
+{"id": "tag-18", "family": "require-tag", "english": "Make sure every EBS volume has an Owner tag", "intent": {"kind": "require-tag", "tag": "Owner", "resource": "ebs"}}
+{"id": "tag-19", "family": "require-tag", "english": "Instances missing the expiry tag are a problem", "intent": {"kind": "require-tag", "tag": "expiry", "resource": "ec2"}}
+{"id": "tag-20", "family": "require-tag", "english": "No accelerator may run without an Owner tag", "intent": {"kind": "require-tag", "tag": "Owner", "resource": "ec2", "gpu_only": true}}
+{"id": "tag-21", "family": "require-tag", "english": "Tag all EC2 instances with Purpose", "intent": {"kind": "require-tag", "tag": "Purpose", "resource": "ec2"}}
+{"id": "tag-22", "family": "require-tag", "english": "Storage volumes must declare their Owner in a tag", "intent": {"kind": "require-tag", "tag": "Owner", "resource": "ebs"}}
+{"id": "tag-23", "family": "require-tag", "english": "Report EC2 machines that have no CostCentre tag", "intent": {"kind": "require-tag", "tag": "CostCentre", "resource": "ec2"}}
+{"id": "tag-24", "family": "require-tag", "english": "Every volume should have a Purpose tag", "intent": {"kind": "require-tag", "tag": "Purpose", "resource": "ebs"}}
+{"id": "tag-25", "family": "require-tag", "english": "GPU instances need an expiry tag so they get cleaned up", "intent": {"kind": "require-tag", "tag": "expiry", "resource": "ec2", "gpu_only": true}}
+{"id": "tag-26", "family": "require-tag", "english": "Warn me about servers without a Project tag", "intent": {"kind": "require-tag", "tag": "Project", "resource": "ec2"}}
+{"id": "tag-27", "family": "require-tag", "english": "Disks must carry an expiry tag", "intent": {"kind": "require-tag", "tag": "expiry", "resource": "ebs"}}
+{"id": "tag-28", "family": "require-tag", "english": "An instance with no Team tag should be flagged", "intent": {"kind": "require-tag", "tag": "Team", "resource": "ec2"}}
+{"id": "tag-29", "family": "require-tag", "english": "Each EBS volume needs a Project tag", "intent": {"kind": "require-tag", "tag": "Project", "resource": "ebs"}}
+{"id": "tag-30", "family": "require-tag", "english": "GPU machines must be tagged with a Team", "intent": {"kind": "require-tag", "tag": "Team", "resource": "ec2", "gpu_only": true}}
+{"id": "tag-31", "family": "require-tag", "english": "Untagged volumes with no Owner tag must be reported", "intent": {"kind": "require-tag", "tag": "Owner", "resource": "ebs"}}
+{"id": "tag-32", "family": "require-tag", "english": "All compute needs an Environment tag", "intent": {"kind": "require-tag", "tag": "Environment", "resource": "ec2"}}
+{"id": "tag-33", "family": "require-tag", "english": "Flag GPU instances that lack a CostCentre tag", "intent": {"kind": "require-tag", "tag": "CostCentre", "resource": "ec2", "gpu_only": true}}
+{"id": "tag-34", "family": "require-tag", "english": "Volumes without a Team tag should be flagged", "intent": {"kind": "require-tag", "tag": "Team", "resource": "ebs"}}
+{"id": "ebs-11", "family": "ebs-unattached", "english": "Detached EBS volumes unattached for more than a week should be flagged", "intent": {"kind": "ebs-unattached", "min_age_days": 7}}
+{"id": "ebs-12", "family": "ebs-unattached", "english": "Tell me about disks that have been orphaned for over 10 days", "intent": {"kind": "ebs-unattached", "min_age_days": 10}}
+{"id": "ebs-13", "family": "ebs-unattached", "english": "Volumes unattached for over 45 days are candidates for deletion", "intent": {"kind": "ebs-unattached", "min_age_days": 45}}
+{"id": "ebs-14", "family": "ebs-unattached", "english": "Any volume not attached to an instance is waste", "intent": {"kind": "ebs-unattached", "min_age_days": 0}}
+{"id": "ebs-15", "family": "ebs-unattached", "english": "Find EBS storage no instance has used for more than 21 days", "intent": {"kind": "ebs-unattached", "min_age_days": 21}}
+{"id": "ebs-16", "family": "ebs-unattached", "english": "Flag disks left unattached for more than 2 days after their instance was terminated", "intent": {"kind": "ebs-unattached", "min_age_days": 2}}
+{"id": "ebs-17", "family": "ebs-unattached", "english": "Orphaned volumes unattached for over a month must be reported", "intent": {"kind": "ebs-unattached", "min_age_days": 30}}
+{"id": "ebs-18", "family": "ebs-unattached", "english": "I don't want unattached volumes lying around for more than 4 days", "intent": {"kind": "ebs-unattached", "min_age_days": 4}}
+{"id": "ebs-19", "family": "ebs-unattached", "english": "Warn me about disks detached for more than 7 days", "intent": {"kind": "ebs-unattached", "min_age_days": 7}}
+{"id": "ebs-20", "family": "ebs-unattached", "english": "Unattached EBS volumes left for over 120 days are forgotten", "intent": {"kind": "ebs-unattached", "min_age_days": 120}}
+{"id": "ebs-21", "family": "ebs-unattached", "english": "Every unattached volume should be flagged, whatever its age", "intent": {"kind": "ebs-unattached", "min_age_days": 0}}
+{"id": "ebs-22", "family": "ebs-unattached", "english": "Report storage volumes that have been detached for more than 20 days", "intent": {"kind": "ebs-unattached", "min_age_days": 20}}
+{"id": "ebs-23", "family": "ebs-unattached", "english": "Volumes sitting unattached for more than six weeks are waste", "intent": {"kind": "ebs-unattached", "min_age_days": 42}}
+{"id": "ebs-24", "family": "ebs-unattached", "english": "Flag any EBS volume that nobody has attached for more than 2 weeks", "intent": {"kind": "ebs-unattached", "min_age_days": 14}}
+{"id": "ebs-25", "family": "ebs-unattached", "english": "Leftover disks with no instance for over 180 days should go", "intent": {"kind": "ebs-unattached", "min_age_days": 180}}
+{"id": "ebs-26", "family": "ebs-unattached", "english": "Clean up volumes detached for more than 1 day", "intent": {"kind": "ebs-unattached", "min_age_days": 1}}
+{"id": "ebs-27", "family": "ebs-unattached", "english": "Let me know about volumes unattached for more than 9 days", "intent": {"kind": "ebs-unattached", "min_age_days": 9}}
+{"id": "ebs-28", "family": "ebs-unattached", "english": "Disks that haven't been attached to anything for over 60 days must be reviewed", "intent": {"kind": "ebs-unattached", "min_age_days": 60}}
+{"id": "rds-07", "family": "rds-public", "english": "Make sure none of our RDS databases are publicly accessible", "intent": {"kind": "rds-public"}}
+{"id": "rds-08", "family": "rds-public", "english": "A database with a public IP is not allowed", "intent": {"kind": "rds-public"}}
+{"id": "rds-09", "family": "rds-public", "english": "Postgres and MySQL instances on RDS must stay private", "intent": {"kind": "rds-public"}}
+{"id": "rds-10", "family": "rds-public", "english": "Warn me about any RDS instance open to the internet", "intent": {"kind": "rds-public"}}
+{"id": "rds-11", "family": "rds-public", "english": "Public access must be disabled on every database", "intent": {"kind": "rds-public"}}
+{"id": "rds-12", "family": "rds-public", "english": "Don't let anyone make an RDS instance public", "intent": {"kind": "rds-public"}}
+{"id": "rds-13", "family": "rds-public", "english": "Databases have to be private — flag the ones that aren't", "intent": {"kind": "rds-public"}}
+{"id": "rds-14", "family": "rds-public", "english": "Report every DB that can be reached from the internet", "intent": {"kind": "rds-public"}}
+{"id": "rds-15", "family": "rds-public", "english": "Our databases should only be reachable inside the VPC", "intent": {"kind": "rds-public"}}
+{"id": "rds-16", "family": "rds-public", "english": "Any RDS instance with PubliclyAccessible turned on is a violation", "intent": {"kind": "rds-public"}}
+{"id": "rds-17", "family": "rds-public", "english": "No database endpoint may be public", "intent": {"kind": "rds-public"}}
+{"id": "rds-18", "family": "rds-public", "english": "Flag databases that anyone on the internet could connect to", "intent": {"kind": "rds-public"}}
+{"id": "sg-11", "family": "sg-open-port", "english": "SSH should never be open to 0.0.0.0/0", "intent": {"kind": "sg-open-port", "port": 22}}
+{"id": "sg-12", "family": "sg-open-port", "english": "Close port 22 to the public", "intent": {"kind": "sg-open-port", "port": 22}}
+{"id": "sg-13", "family": "sg-open-port", "english": "Remote desktop must not be exposed to the internet", "intent": {"kind": "sg-open-port", "port": 3389}}
+{"id": "sg-14", "family": "sg-open-port", "english": "Flag any security group that opens MySQL to everyone", "intent": {"kind": "sg-open-port", "port": 3306}}
+{"id": "sg-15", "family": "sg-open-port", "english": "MongoDB's port must not be reachable publicly", "intent": {"kind": "sg-open-port", "port": 27017}}
+{"id": "sg-16", "family": "sg-open-port", "english": "Don't expose Redis to the world", "intent": {"kind": "sg-open-port", "port": 6379}}
+{"id": "sg-17", "family": "sg-open-port", "english": "Elasticsearch on 9200 must not be open to the internet", "intent": {"kind": "sg-open-port", "port": 9200}}
+{"id": "sg-18", "family": "sg-open-port", "english": "Port 5432 must never be reachable from the internet", "intent": {"kind": "sg-open-port", "port": 5432}}
+{"id": "sg-19", "family": "sg-open-port", "english": "Nothing may allow inbound 8080 from any IP", "intent": {"kind": "sg-open-port", "port": 8080}}
+{"id": "sg-20", "family": "sg-open-port", "english": "FTP must not be open to the internet", "intent": {"kind": "sg-open-port", "port": 21}}
+{"id": "sg-21", "family": "sg-open-port", "english": "Telnet should be closed to the public internet", "intent": {"kind": "sg-open-port", "port": 23}}
+{"id": "sg-22", "family": "sg-open-port", "english": "Warn me if port 3389 is open to all addresses", "intent": {"kind": "sg-open-port", "port": 3389}}
+{"id": "sg-23", "family": "sg-open-port", "english": "Security groups must not allow SSH from anywhere", "intent": {"kind": "sg-open-port", "port": 22}}
+{"id": "sg-24", "family": "sg-open-port", "english": "Block public access to port 27017", "intent": {"kind": "sg-open-port", "port": 27017}}
+{"id": "sg-25", "family": "sg-open-port", "english": "Report any rule letting the internet reach port 6379", "intent": {"kind": "sg-open-port", "port": 6379}}
+{"id": "sg-26", "family": "sg-open-port", "english": "Port 443 is fine, but port 8080 must not be public", "intent": {"kind": "sg-open-port", "port": 8080}}
+{"id": "sg-27", "family": "sg-open-port", "english": "Nobody on the internet should reach our Postgres port", "intent": {"kind": "sg-open-port", "port": 5432}}
+{"id": "sg-28", "family": "sg-open-port", "english": "Opening 3306 to 0.0.0.0/0 is forbidden", "intent": {"kind": "sg-open-port", "port": 3306}}
+{"id": "sg-29", "family": "sg-open-port", "english": "Alert me when port 9200 is exposed to everyone", "intent": {"kind": "sg-open-port", "port": 9200}}
+{"id": "sg-30", "family": "sg-open-port", "english": "Inbound SSH from the whole internet must be flagged", "intent": {"kind": "sg-open-port", "port": 22}}
+{"id": "type-11", "family": "instance-type", "english": "Only t3.micro instances may be launched", "intent": {"kind": "instance-type", "allowed": ["t3.micro"]}}
+{"id": "type-12", "family": "instance-type", "english": "Allow t2.micro and t3.micro only", "intent": {"kind": "instance-type", "allowed": ["t2.micro", "t3.micro"]}}
+{"id": "type-13", "family": "instance-type", "english": "Nothing except t3.small and t3.medium can run", "intent": {"kind": "instance-type", "allowed": ["t3.small", "t3.medium"]}}
+{"id": "type-14", "family": "instance-type", "english": "Students may only use t3.nano instances", "intent": {"kind": "instance-type", "allowed": ["t3.nano"]}}
+{"id": "type-15", "family": "instance-type", "english": "The allowed instance types are m5.large and c5.large", "intent": {"kind": "instance-type", "allowed": ["m5.large", "c5.large"]}}
+{"id": "type-16", "family": "instance-type", "english": "Flag any instance that isn't a t3.micro", "intent": {"kind": "instance-type", "allowed": ["t3.micro"]}}
+{"id": "type-17", "family": "instance-type", "english": "Stick to t3.medium for everything", "intent": {"kind": "instance-type", "allowed": ["t3.medium"]}}
+{"id": "type-18", "family": "instance-type", "english": "GPU work is limited to g5.xlarge and g4dn.xlarge", "intent": {"kind": "instance-type", "allowed": ["g5.xlarge", "g4dn.xlarge"]}}
+{"id": "type-19", "family": "instance-type", "english": "Only t3.small or t3.large instances are permitted", "intent": {"kind": "instance-type", "allowed": ["t3.small", "t3.large"]}}
+{"id": "type-20", "family": "instance-type", "english": "Our lab account allows t2.micro, t2.small and t3.micro", "intent": {"kind": "instance-type", "allowed": ["t2.micro", "t2.small", "t3.micro"]}}
+{"id": "type-21", "family": "instance-type", "english": "Anything that is not m5.xlarge should be reported", "intent": {"kind": "instance-type", "allowed": ["m5.xlarge"]}}
+{"id": "type-22", "family": "instance-type", "english": "Keep instance types to c5.large and c5.xlarge", "intent": {"kind": "instance-type", "allowed": ["c5.large", "c5.xlarge"]}}
+{"id": "type-23", "family": "instance-type", "english": "We run only t3a.micro instances", "intent": {"kind": "instance-type", "allowed": ["t3a.micro"]}}
+{"id": "type-24", "family": "instance-type", "english": "Only t4g.small is approved", "intent": {"kind": "instance-type", "allowed": ["t4g.small"]}}
+{"id": "type-25", "family": "instance-type", "english": "Instances other than t3.micro and t3.small are not allowed", "intent": {"kind": "instance-type", "allowed": ["t3.micro", "t3.small"]}}
+{"id": "type-26", "family": "instance-type", "english": "Allowed types: m6i.large only", "intent": {"kind": "instance-type", "allowed": ["m6i.large"]}}
+{"id": "type-27", "family": "instance-type", "english": "Restrict EC2 to t2.medium", "intent": {"kind": "instance-type", "allowed": ["t2.medium"]}}
+{"id": "type-28", "family": "instance-type", "english": "No instance type other than r5.large may be used", "intent": {"kind": "instance-type", "allowed": ["r5.large"]}}
+{"id": "reg-07", "family": "region", "english": "All our instances belong in ap-south-1 (Mumbai)", "intent": {"kind": "region", "region": "ap-south-1"}}
+{"id": "reg-08", "family": "region", "english": "Flag anything running outside Mumbai", "intent": {"kind": "region", "region": "ap-south-1"}}
+{"id": "reg-09", "family": "region", "english": "We are an Ireland-only shop: eu-west-1", "intent": {"kind": "region", "region": "eu-west-1"}}
+{"id": "reg-10", "family": "region", "english": "Instances in any region but us-east-1 are a mistake", "intent": {"kind": "region", "region": "us-east-1"}}
+{"id": "reg-11", "family": "region", "english": "Keep compute in ap-southeast-1 only", "intent": {"kind": "region", "region": "ap-southeast-1"}}
+{"id": "reg-12", "family": "region", "english": "Nothing may be launched outside Frankfurt (eu-central-1)", "intent": {"kind": "region", "region": "eu-central-1"}}
+{"id": "reg-13", "family": "region", "english": "Our region is us-west-2; report instances anywhere else", "intent": {"kind": "region", "region": "us-west-2"}}
+{"id": "reg-14", "family": "region", "english": "Only ap-south-1 is approved for EC2", "intent": {"kind": "region", "region": "ap-south-1"}}
+{"id": "reg-15", "family": "region", "english": "Warn me about servers running outside eu-west-1", "intent": {"kind": "region", "region": "eu-west-1"}}
+{"id": "reg-16", "family": "region", "english": "Anything launched in a region other than us-east-1 must be flagged", "intent": {"kind": "region", "region": "us-east-1"}}
+{"id": "reg-17", "family": "region", "english": "Singapore (ap-southeast-1) is the only allowed region", "intent": {"kind": "region", "region": "ap-southeast-1"}}
+{"id": "reg-18", "family": "region", "english": "Don't run workloads outside eu-central-1", "intent": {"kind": "region", "region": "eu-central-1"}}
+{"id": "reg-19", "family": "region", "english": "Stray instances outside ap-south-1 should be caught", "intent": {"kind": "region", "region": "ap-south-1"}}
+{"id": "reg-20", "family": "region", "english": "Oregon, us-west-2, is our only region", "intent": {"kind": "region", "region": "us-west-2"}}
+{"id": "reg-21", "family": "region", "english": "Keep every instance in ap-south-2 (Hyderabad)", "intent": {"kind": "region", "region": "ap-south-2"}}
+{"id": "reg-22", "family": "region", "english": "Flag compute anywhere except eu-west-2", "intent": {"kind": "region", "region": "eu-west-2"}}

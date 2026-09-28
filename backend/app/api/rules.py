@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, TypeAdapter, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_compiler, get_inventory, get_session
+from app.api.deps import get_compiler, get_inventory, get_router, get_session
 from app.compiler import clarify
 from app.compiler.service import compile_rule, draft_for
 from app.config import settings
@@ -166,11 +166,17 @@ def list_rules(inventory: InventoryStore = Depends(get_inventory), session: Sess
 
 @router.post('/compile')
 def compile_rule_endpoint(req: CompileRequest, inventory: InventoryStore = Depends(get_inventory),
-                          compiler=Depends(get_compiler)):
+                          compiler=Depends(get_compiler), router=Depends(get_router)):
     """English in, verified policy out — or a question, an unverified draft, or an honest failure.
 
-    Never an HTTP error. `status` is one of: compiled, unverified, needs-clarification, failed.
+    Never an HTTP error. `status` is one of: compiled, unverified, needs-clarification, failed, not-a-rule.
     """
+    if not req.choices:
+        # A question or small talk gets an answer, not a made-up policy (see app/compiler/router.py).
+        route = router.route(req.english)
+        if not route.is_rule:
+            return {'status': 'not-a-rule', 'english': req.english, 'route': route.kind,
+                    'answer': route.answer, 'decidedBy': route.by}
     english = clarify.apply_choices(req.english, req.choices) if req.choices else req.english
     return compile_rule(english, inventory, settings.region, compiler=compiler,
                         skip_clarify=req.skip_clarify or bool(req.choices))

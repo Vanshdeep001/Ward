@@ -1,0 +1,8 @@
+.micro-slats {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  /* Pointer events are read from the window, so the canvas never blocks what sits on top of it. */
+  pointer-events: none;
+}

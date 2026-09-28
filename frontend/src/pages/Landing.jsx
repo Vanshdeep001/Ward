@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Check, Radar, Sparkles } from 'lucide-react'
+import { ArrowRight, Check, Cpu, Radar } from 'lucide-react'
 import { WardMark } from '../components/ui.jsx'
 import YamlBlock from '../components/YamlBlock.jsx'
 
@@ -179,7 +179,7 @@ function Compiler() {
           </p>
 
           <div className="flex items-center gap-2 border-t border-slate-200/80 pt-4 text-[11px] font-semibold text-slate-500">
-            <span className="grid h-6 w-6 place-items-center rounded-lg bg-arc-50 text-arc-600"><Sparkles size={12} /></span>
+            <span className="grid h-6 w-6 place-items-center rounded-lg bg-arc-50 text-arc-600"><Cpu size={12} /></span>
             Compiled by a 7B model, fine-tuned on verifier-certified output
           </div>
         </div>

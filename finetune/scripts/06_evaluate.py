@@ -30,9 +30,16 @@ def generate(args) -> None:
     if not torch.cuda.is_available():
         raise SystemExit('Generation needs a GPU. Run --mode score on the laptop instead.')
 
-    tokenizer = AutoTokenizer.from_pretrained(args.adapter)
-    model = AutoModelForCausalLM.from_pretrained(args.base_model, device_map='auto', dtype='auto')
-    model = PeftModel.from_pretrained(model, str(args.adapter))
+    if args.no_adapter:
+        # The untuned base model, given the identical prompt: the baseline that shows what fine-tuning bought.
+        tokenizer = AutoTokenizer.from_pretrained(args.base_model)
+        model = AutoModelForCausalLM.from_pretrained(args.base_model, device_map='auto', dtype='auto')
+    else:
+        if not args.adapter:
+            raise SystemExit('--adapter is required (or --no-adapter for the untuned baseline).')
+        tokenizer = AutoTokenizer.from_pretrained(args.adapter)
+        model = AutoModelForCausalLM.from_pretrained(args.base_model, device_map='auto', dtype='auto')
+        model = PeftModel.from_pretrained(model, str(args.adapter))
     model.eval()
 
     rows = [json.loads(line) for line in args.split.read_text(encoding='utf-8').splitlines() if line.strip()]
@@ -54,10 +61,14 @@ def generate(args) -> None:
     print(f'{len(rows)} predictions -> {args.out}')
 
 
-def score(args) -> None:
+def grade(rows: list[dict], region: str = 'ap-south-1') -> dict:
+    """Grade predictions against fixtures built from each row's intent. The one judge every system —
+    fine-tuned, untuned, templates, a zero-shot API model — is measured by (08_compare.py uses it too)."""
     import sys
 
-    sys.path.insert(0, str(ROOT.parent / 'backend'))
+    backend = str(ROOT.parent / 'backend')
+    if backend not in sys.path:
+        sys.path.insert(0, backend)
     from pydantic import TypeAdapter
 
     from app.engine import custodian
@@ -65,26 +76,31 @@ def score(args) -> None:
     from app.verifier.intents import Intent
     from app.verifier.runner import verify
 
-    custodian.warm_up(args.region)
+    custodian.warm_up(region)
     intents = TypeAdapter(Intent)
-
-    rows = [json.loads(line) for line in args.preds.read_text(encoding='utf-8').splitlines() if line.strip()]
     stats = defaultdict(lambda: {'pass': 0, 'fail': 0})
     exact, passed, failures = 0, 0, []
 
     for row in rows:
         meta = row['meta']
-        report = verify(row['prediction'], fixture_gen.generate(intents.validate_python(meta['intent'])), args.region)
-        stats[meta['family']]['pass' if report.passed else 'fail'] += 1
-        if report.passed:
+        prediction = row.get('prediction') or ''
+        report = verify(prediction, fixture_gen.generate(intents.validate_python(meta['intent'])), region) if prediction.strip() else None
+        ok = bool(report and report.passed)
+        stats[meta['family']]['pass' if ok else 'fail'] += 1
+        if ok:
             passed += 1
         else:
-            failures.append((meta['english'], report.error or 'wrong resources matched'))
-        if row['prediction'].strip() == row['reference'].strip():
+            failures.append((meta['english'], 'no policy' if report is None else (report.error or 'wrong resources matched')))
+        if prediction.strip() == (row.get('reference') or '').strip():
             exact += 1
+    return {'n': len(rows), 'passed': passed, 'exact': exact, 'stats': dict(stats), 'failures': failures,
+            'groups': {r['meta']['group'] for r in rows}}
 
-    n = len(rows)
-    groups = {r['meta']['group'] for r in rows}
+
+def score(args) -> None:
+    rows = [json.loads(line) for line in args.preds.read_text(encoding='utf-8').splitlines() if line.strip()]
+    g = grade(rows, args.region)
+    n, passed, exact, stats, failures, groups = g['n'], g['passed'], g['exact'], g['stats'], g['failures'], g['groups']
     print(f'\ncompile rate : {passed}/{n} = {passed / n:.1%}   <- the number that matters')
     print(f'exact match  : {exact}/{n} = {exact / n:.1%}   (lower is fine: valid policies differ in wording)')
     print(f'independent groups in this split: {len(groups)}')
@@ -133,6 +149,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--mode', choices=['generate', 'score'], required=True)
     ap.add_argument('--adapter', type=Path, help='generate: the trained adapter directory')
+    ap.add_argument('--no-adapter', action='store_true', help='generate: the untuned base model — the baseline')
     ap.add_argument('--base-model', default='Qwen/Qwen2.5-Coder-1.5B-Instruct')
     ap.add_argument('--split', type=Path, default=ROOT / 'data' / 'splits' / 'val.jsonl')
     ap.add_argument('--out', type=Path, default=ROOT / 'results' / 'preds_val.jsonl')

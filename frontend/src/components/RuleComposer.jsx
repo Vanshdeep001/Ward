@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  AlertTriangle, CalendarDays, Check, Cpu, Globe2, HardDrive, HelpCircle, PiggyBank, Plus, Sparkles, Tag, Timer, Wallet,
+  AlertTriangle, CalendarDays, Check, Cpu, Globe2, HardDrive, HelpCircle, PiggyBank, Plus, ScrollText, Tag, ArrowRight, Timer, Wallet,
   XCircle,
 } from 'lucide-react'
 import { api } from '../api/client.js'
@@ -10,6 +10,7 @@ import { Card } from './ui.jsx'
 import Clarifier from './Clarifier.jsx'
 import GuardrailCard from './GuardrailCard.jsx'
 import YamlBlock from './YamlBlock.jsx'
+import MicroSlats from './MicroSlats.jsx'
 
 const EXAMPLES = [
   'Never let a GPU instance run more than 6 hours',
@@ -86,17 +87,30 @@ export default function RuleComposer({ initialText = '', suggestions = EXAMPLES,
           e.preventDefault()
           if (text.trim()) compile(text.trim())
         }}
-        className="relative overflow-hidden rounded-[1.75rem] bg-ink shadow-[0_28px_60px_-28px_rgb(10_8_60/0.75)]"
+        className="grain relative overflow-hidden rounded-[1.75rem] bg-arc-600 shadow-[0_28px_60px_-28px_rgb(49_57_251/0.75)]"
       >
-        <div className="flex items-center justify-between gap-4 px-6 pt-5">
-          <label htmlFor="rule" className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">
+        {/* Moving slats behind everything: the panel's own indigo, a lighter indigo, a periwinkle glint. */}
+        <MicroSlats
+          className="absolute! inset-0"
+          preset="tide"
+          color="#4048fd"
+          glintColor="#8c93ff"
+          backgroundColor="#3139fb"
+          slatWidth={8}
+          slatHeight={20}
+          gap={4}
+          speed={0.45}
+          cursorStrength={0.8}
+        />
+        <div className="relative z-10 flex items-center justify-between gap-4 px-6 pt-5">
+          <label htmlFor="rule" className="flex items-center gap-2 text-[11.5px] font-extrabold uppercase tracking-[0.18em] text-white [text-shadow:0_1px_10px_rgb(20_22_140/0.55)]">
             <span className={`h-1.5 w-1.5 rounded-full ${busy ? 'bg-amber-300' : 'bg-emerald-400'}`} />
             {busy ? 'Compiling…' : 'Write a guardrail in plain English'}
           </label>
-          <span className="hidden font-mono text-[10px] text-white/30 sm:block">⏎ compile · ⇧⏎ new line</span>
+          <span className="hidden font-mono text-[11px] font-semibold text-white/90 sm:block [text-shadow:0_1px_10px_rgb(20_22_140/0.55)]">⏎ compile · ⇧⏎ new line</span>
         </div>
 
-        <div className="relative px-6 py-5">
+        <div className="relative z-10 px-6 py-5">
           <textarea
             id="rule"
             rows={2}
@@ -110,43 +124,43 @@ export default function RuleComposer({ initialText = '', suggestions = EXAMPLES,
                 compile(text.trim())
               }
             }}
-            className="relative z-10 block min-h-[4.25rem] w-full resize-none bg-transparent p-0 font-display text-[clamp(1.3rem,3vw,1.85rem)] font-semibold leading-snug text-white caret-arc-300 outline-none"
+            className="relative z-10 block min-h-[4.25rem] w-full resize-none bg-transparent p-0 font-display text-[clamp(1.3rem,3vw,1.85rem)] font-semibold leading-snug text-white caret-white outline-none [text-shadow:0_1px_10px_rgb(20_22_140/0.55)]"
           />
           {!text && (
             <p
               aria-hidden
-              className="pointer-events-none absolute inset-x-6 top-5 font-display text-[clamp(1.3rem,3vw,1.85rem)] font-semibold leading-snug text-white/25"
+              className="pointer-events-none absolute inset-x-6 top-5 font-display text-[clamp(1.3rem,3vw,1.85rem)] font-semibold leading-snug text-white/75 [text-shadow:0_1px_10px_rgb(20_22_140/0.55)]"
             >
               {ghost}
-              {!focused && <span className="caret text-arc-300" />}
+              {!focused && <span className="caret text-white/80" />}
             </p>
           )}
         </div>
 
         {/* Whether Ward will have to stop and ask what you meant. */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-white/10 px-6 py-4">
+        <div className="relative z-10 flex flex-wrap items-center justify-between gap-4 border-t border-white/25 px-6 py-4">
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             <Precision met={named} label="names a resource" />
             <Precision met={bounded} label="names a limit" />
-            <span className="text-[11px] text-white/35">
+            <span className="text-[12.5px] font-semibold text-white/90 [text-shadow:0_1px_10px_rgb(20_22_140/0.55)]">
               {named && bounded ? 'Specific enough to compile directly' : 'Ward may ask a clarifying question'}
             </span>
           </div>
           <button
             type="submit"
             disabled={!text.trim() || busy}
-            className="group inline-flex shrink-0 items-center gap-2.5 rounded-full bg-white py-1.5 pl-5 pr-1.5 text-[15px] font-semibold text-ink transition disabled:cursor-not-allowed disabled:bg-white/25 disabled:text-white/50"
+            className="group inline-flex shrink-0 items-center gap-2.5 rounded-full bg-white py-1.5 pl-5 pr-1.5 text-[15px] font-semibold text-ink transition disabled:cursor-not-allowed disabled:bg-white/35 disabled:text-white"
           >
             {busy ? 'Verifying…' : 'Compile'}
-            <span className="grid h-9 w-9 place-items-center rounded-full bg-ink text-white transition duration-300 group-enabled:group-hover:bg-arc-600 group-disabled:bg-white/20">
-              <Sparkles size={16} />
+            <span className="grid h-9 w-9 place-items-center rounded-full bg-arc-600 text-white transition duration-300 group-enabled:group-hover:bg-ink group-disabled:bg-white/20">
+              <ArrowRight size={17} strokeWidth={2.5} className="transition duration-300 group-enabled:group-hover:translate-x-0.5" />
             </span>
           </button>
         </div>
 
         {busy && (
-          <div className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-white/10">
-            <div className="animate-sweep h-full w-1/4 bg-gradient-to-r from-transparent via-arc-300 to-transparent" />
+          <div className="absolute inset-x-0 bottom-0 z-10 h-0.5 overflow-hidden bg-white/15">
+            <div className="animate-sweep h-full w-1/4 bg-gradient-to-r from-transparent via-white to-transparent" />
           </div>
         )}
       </form>
@@ -159,7 +173,7 @@ export default function RuleComposer({ initialText = '', suggestions = EXAMPLES,
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             {suggestions.map((sug) => {
-              const meta = RULEBOOK[sug] ?? { icon: Sparkles, filter: 'compiles to a c7n policy' }
+              const meta = RULEBOOK[sug] ?? { icon: ScrollText, filter: 'compiles to a c7n policy' }
               const Icon = meta.icon
               const picked = sug === text
               return (
@@ -204,9 +218,19 @@ export default function RuleComposer({ initialText = '', suggestions = EXAMPLES,
 
       {result?.status === 'failed' && (
         <Card className="border-coral-100 bg-coral-50 p-5 text-sm text-coral-600">
-          <p className="flex items-center gap-2 font-medium"><XCircle size={16} /> Ward couldn’t build a verified policy for this rule</p>
-          <p className="mt-1 text-slate-700">{result.verifier.error}</p>
-          <p className="mt-2 text-slate-600">Try naming the resource type and a number — e.g. “No RDS instance larger than db.t3.small”.</p>
+          {/model is not running|did not answer in time|unusable answer/i.test(result.verifier.error ?? '') ? (
+            <>
+              <p className="flex items-center gap-2 font-medium"><XCircle size={16} /> The policy model isn’t available right now</p>
+              <p className="mt-1 text-slate-700">{result.verifier.error}</p>
+              <p className="mt-2 text-slate-600">Your rule wasn’t the problem — try again once the model server is up.</p>
+            </>
+          ) : (
+            <>
+              <p className="flex items-center gap-2 font-medium"><XCircle size={16} /> Ward couldn’t build a verified policy for this rule</p>
+              <p className="mt-1 text-slate-700">{result.verifier.error}</p>
+              <p className="mt-2 text-slate-600">Try naming the resource type and a number — e.g. “No RDS instance larger than db.t3.small”.</p>
+            </>
+          )}
         </Card>
       )}
 
@@ -221,6 +245,44 @@ export default function RuleComposer({ initialText = '', suggestions = EXAMPLES,
       )}
 
       {result?.status === 'unverified' && <UnverifiedDraft key={result.english} result={result} />}
+
+      {result?.status === 'not-a-rule' && <NotARule key={result.english} result={result} onExample={(t) => setText(t)} />}
+    </div>
+  )
+}
+
+/* What was typed wasn't a rule — a question, or small talk — so no policy was written. Ward says so, and
+   answers the question when it can, instead of letting the compiler invent a policy for it. */
+function NotARule({ result, onExample }) {
+  const question = result.route === 'question'
+  const example = (result.answer ?? '').match(/[“"]([^”"]+)[”"]/)?.[1]
+  return (
+    <div className="animate-rise overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgb(15_23_42/0.04),0_20px_44px_-34px_rgb(23_23_60/0.45)]">
+      <div className="px-6 py-5">
+        <p className={`text-[10.5px] font-bold uppercase tracking-[0.16em] ${question ? 'text-arc-600' : 'text-slate-400'}`}>
+          {question ? 'That’s a question, not a rule' : 'That isn’t a guardrail'}
+        </p>
+        <p className="mt-2 text-[15px] leading-relaxed text-slate-700">{result.answer}</p>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {example && (
+            <button
+              type="button"
+              onClick={() => onExample(example)}
+              className="rounded-full bg-arc-50 px-3.5 py-1.5 text-[12.5px] font-bold text-arc-700 ring-1 ring-inset ring-arc-200 transition hover:bg-arc-100"
+            >
+              Use the example
+            </button>
+          )}
+          {question && (
+            <a href={`/copilot?q=${encodeURIComponent(result.english)}`} className="rounded-full border border-slate-200 px-3.5 py-1.5 text-[12.5px] font-bold text-slate-600 transition hover:border-slate-300 hover:text-ink">
+              Ask Ward instead →
+            </a>
+          )}
+        </div>
+      </div>
+      <p className="border-t border-slate-100 bg-slate-50/60 px-6 py-2.5 text-[11.5px] text-slate-400">
+        No policy was written — the compiler only sees sentences that set a limit on your resources.
+      </p>
     </div>
   )
 }
@@ -281,8 +343,8 @@ function UnverifiedDraft({ result }) {
 
 function Precision({ met, label }) {
   return (
-    <span className={`flex items-center gap-1.5 text-[11px] font-semibold transition ${met ? 'text-emerald-300' : 'text-white/35'}`}>
-      <span className={`grid h-4 w-4 place-items-center rounded-full transition ${met ? 'bg-emerald-400/20' : 'bg-white/10'}`}>
+    <span className={`flex items-center gap-1.5 text-[12.5px] font-bold transition [text-shadow:0_1px_10px_rgb(20_22_140/0.55)] ${met ? 'text-white' : 'text-white/85'}`}>
+      <span className={`grid h-4 w-4 place-items-center rounded-full transition ${met ? 'bg-emerald-400' : 'bg-white/30'}`}>
         <Check size={10} strokeWidth={3.5} />
       </span>
       {label}

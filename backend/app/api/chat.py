@@ -44,6 +44,8 @@ RULES = re.compile(r'\b(rules?|guardrails?|watching)\b', re.I)
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=1000)
     state: dict = Field(default_factory=dict)
+    # Resources the user chose to ask about. When set, every question goes to search, limited to them.
+    scope: list[str] = Field(default_factory=list, max_length=200)
 
 
 def _reply(intent: str, text: str, state: dict, **extra) -> dict:
@@ -64,6 +66,9 @@ def chat(req: ChatRequest, inventory: InventoryStore = Depends(get_inventory), s
 
     if MAKE_RULE.search(text):
         return _draft_rule(referent, inventory, state)
+
+    if req.scope:
+        return _search(text, state, session, inventory, search, req.scope)
 
     named = _find_resource(snapshot, text)
     if named is not None:
@@ -89,10 +94,10 @@ def chat(req: ChatRequest, inventory: InventoryStore = Depends(get_inventory), s
     return _search(text, state, session, inventory, search)
 
 
-def _search(text: str, state: dict, session, inventory, search: SearchService) -> dict:
+def _search(text: str, state: dict, session, inventory, search: SearchService, scope: list[str] | None = None) -> dict:
     """Retrieval-augmented: the answer is written from the resources that matched, which it cites."""
     history = state.get('history', [])
-    result = run_search(text, history, session, inventory, search)
+    result = run_search(text, history, session, inventory, search, scope)
     if not result['sources'] and search.answerer is None and not result['checks']['blocked']:
         # Nothing matched and there is no model to hold a conversation: say what Ward can answer.
         return _reply(
@@ -107,7 +112,8 @@ def _search(text: str, state: dict, session, inventory, search: SearchService) -
     if cited or result['sources']:
         state['referentId'] = (cited or result['sources'])[0]['id']
     return _reply('SEARCH', result['answer'], state, sources=result['sources'], retriever=result['retriever'],
-                  generator=result['generator'], notice=result['notice'], checks=result['checks'])
+                  generator=result['generator'], notice=result['notice'], checks=result['checks'],
+                  focus=result['focus'])
 
 
 def _refuse(text: str, referent, state) -> dict:

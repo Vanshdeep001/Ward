@@ -33,7 +33,7 @@ from pathlib import Path
 
 import yaml
 
-from prompting import build_messages, retrieve
+from prompting import build_messages, looks_like_rule, retrieve
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT.parent / 'backend'
@@ -186,6 +186,32 @@ class Verifier:
         return result
 
 
+def load_router():
+    """Ward's router (backend/app/compiler/router.py), using the chat model in backend/.env — the one Ask
+    Ward uses. Absent in Colab, where only the keyword gate is available."""
+    if not BACKEND.exists():
+        return None
+    if str(BACKEND) not in sys.path:
+        sys.path.insert(0, str(BACKEND))
+    try:
+        from app.compiler.router import Router
+        from app.config import settings
+    except ImportError:
+        return None
+    return Router(settings.rag_llm_url, settings.rag_llm_key, settings.rag_llm_model)
+
+
+def _route(router, rule: str) -> dict:
+    if router is not None:
+        r = router.route(rule)
+        return {'kind': r.kind, 'answer': r.answer, 'by': r.by}
+    if looks_like_rule(rule):
+        return {'kind': 'rule', 'answer': None, 'by': 'gate'}
+    return {'kind': 'other', 'by': 'gate',
+            'answer': 'This names nothing Ward can watch (instances, GPUs, volumes, databases, ports, regions, '
+                      'tags, instance types). e.g. "No GPU instance may run for more than 6 hours"'}
+
+
 def show(answer: dict, checks: dict) -> None:
     print('\n' + answer['yaml'].rstrip())
     print('─' * 60)
@@ -211,17 +237,37 @@ def main() -> None:
     ap.add_argument('--file', type=Path, help='a text file with one rule per line')
     ap.add_argument('--save', type=Path, help='append every answer and its checks to this .jsonl file')
     ap.add_argument('--base-model', default='Qwen/Qwen2.5-Coder-1.5B-Instruct')
-    ap.add_argument('--adapter', default='vansh-deep/ward-compiler-1.5b')
+    ap.add_argument('--adapter', default='vansh-deep/ward-compiler-1.5b-v2',
+                    help='v2 (2,099 verified pairs); v1 is vansh-deep/ward-compiler-1.5b')
     ap.add_argument('--no-reference', action='store_true', help='omit the REFERENCE block (not how it was trained)')
     ap.add_argument('--cpu-fp32', action='store_true', help='on CPU, load in float32 (~6 GB RAM) instead of bfloat16 (~3 GB)')
+    ap.add_argument('--no-gate', action='store_true',
+                    help='send every sentence to the model, even ones that name nothing a guardrail can watch')
     args = ap.parse_args()
 
     verifier = Verifier()
     if not verifier.available:
         print('Ward backend not found alongside — checks 3 and 4 are off. (Expected in Colab.)')
+    router = load_router() if not args.no_gate else None
+    if not args.no_gate:
+        print(f'router     : {router.model if router and router.enabled else "keyword gate + question heuristic (no router model configured)"}')
     model, tokenizer = load_model(args.base_model, args.adapter, cpu_fp32=args.cpu_fp32)
 
     def run(rule: str) -> dict:
+        # The model was trained only on rules, so it answers anything with a policy — "hello" became
+        # require-greeting, "what is server ?" became only-t3a-standard. Everything is sorted first;
+        # only rules reach it.
+        route = _route(router, rule) if not args.no_gate else None
+        if route is not None and route['kind'] != 'rule':
+            label = {'question': 'a question, not a rule', 'other': 'not a guardrail'}[route['kind']]
+            print(f'\n  ✗ {label} — the model was not asked  (decided by: {route["by"]})')
+            print(f'    {route["answer"]}')
+            checks = {'yaml': None, 'read_only': None, 'custodian': None, 'verified': None, 'refused': True}
+            if args.save:
+                args.save.parent.mkdir(parents=True, exist_ok=True)
+                with args.save.open('a', encoding='utf-8') as fh:
+                    fh.write(json.dumps({'rule': rule, 'refused': True, 'route': route}, ensure_ascii=False) + '\n')
+            return checks
         answer = generate(model, tokenizer, rule, use_reference=not args.no_reference)
         checks = verifier.check(rule, answer['yaml'])
         show(answer, checks)
@@ -255,8 +301,10 @@ def _summary(results: list[dict]) -> None:
     def share(key):
         vals = [r[key] for r in results if r[key] is not None]
         return f'{sum(vals)}/{len(vals)}' if vals else 'n/a'
+    refused = sum(1 for r in results if r.get('refused'))
     print(f'\n{n} rules  ·  YAML {share("yaml")}  ·  read-only {share("read_only")}  ·  '
-          f'Custodian-valid {share("custodian")}  ·  verified {share("verified")}')
+          f'Custodian-valid {share("custodian")}  ·  verified {share("verified")}'
+          + (f'  ·  {refused} refused as not a guardrail' if refused else ''))
 
 
 if __name__ == '__main__':

@@ -77,20 +77,27 @@ def main() -> None:
     print(f'examples   : {len(train_ds)} train, {len(val_ds)} val')
 
     q = cfg['quantization']
+    compute_dtype = getattr(torch, q['bnb_4bit_compute_dtype'])
+    # Load the parts that are not quantised (embeddings, norms, lm_head) in the compute dtype. Left
+    # unset, transformers 5 loads them in the checkpoint's own dtype — bfloat16 for Qwen2.5 — and on a
+    # T4 the fp16 grad scaler then meets bf16 gradients and dies with
+    # "_amp_foreach_non_finite_check_and_unscale_cuda not implemented for 'BFloat16'".
     model = AutoModelForCausalLM.from_pretrained(
         base_model,
         quantization_config=BitsAndBytesConfig(
             load_in_4bit=q['load_in_4bit'],
-            bnb_4bit_compute_dtype=getattr(torch, q['bnb_4bit_compute_dtype']),
+            bnb_4bit_compute_dtype=compute_dtype,
             bnb_4bit_quant_type=q['bnb_4bit_quant_type'],
             bnb_4bit_use_double_quant=q['bnb_4bit_use_double_quant'],
         ),
         device_map='auto',
+        **{_dtype_kwarg(): compute_dtype},
     )
     model.config.use_cache = False  # incompatible with gradient checkpointing
 
     peft_config = LoraConfig(**cfg['lora'])
     trainer = _build_trainer(model, tokenizer, train_ds, val_ds, peft_config, train_cfg, args.out)
+    _trainable_in_fp32(trainer.model, torch)
 
     trainer.train(resume_from_checkpoint=True if args.resume else None)
     trainer.save_model(str(args.out))
@@ -102,6 +109,31 @@ def main() -> None:
         print(f"\nbest eval_loss {best['eval_loss']:.4f} at step {best.get('step')}")
     print(f'adapter saved to {args.out} — this is the artefact to keep (~100 MB)')
     print('Next: 06_evaluate.py --mode generate, then score the predictions on the laptop.')
+
+
+def _dtype_kwarg() -> str:
+    """transformers renamed from_pretrained's `torch_dtype` to `dtype` (4.56); older versions ignore
+    `dtype` silently, so ask which one this install understands."""
+    import transformers
+
+    major, minor = (int(x) for x in transformers.__version__.split('.')[:2])
+    return 'dtype' if (major, minor) >= (4, 56) else 'torch_dtype'
+
+
+def _trainable_in_fp32(model, torch) -> None:
+    """Keep every trainable weight — the LoRA adapters — in float32.
+
+    Mixed precision computes in fp16/bf16 but must hold the weights it updates in fp32: the fp16 grad
+    scaler cannot unscale half-precision gradients, and tiny updates vanish when added to half-precision
+    weights. The frozen 4-bit base is untouched, so this costs a few MB.
+    """
+    cast = 0
+    for _, param in model.named_parameters():
+        if param.requires_grad and param.dtype != torch.float32:
+            param.data = param.data.float()
+            cast += 1
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f'trainable  : {trainable / 1e6:.1f}M parameters in float32' + (f' ({cast} tensors upcast)' if cast else ''))
 
 
 def _build_trainer(model, tokenizer, train_ds, val_ds, peft_config, train_cfg, out):

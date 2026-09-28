@@ -176,28 +176,53 @@ What you are checking at this stage is that the loop runs and the model emits YA
 **Ignore the accuracy.** With 7 validation groups it carries no information — `06_evaluate.py` says so
 in its own output. Fix the dataset (§3) before any run whose number you intend to publish.
 
-## 5. Running the data pipeline
+## 5. Running the data pipeline (v2)
 
-On the laptop (all of this is cheap):
+On the laptop (all of this is cheap — a couple of minutes, CPU only):
 
 ```bash
 cd finetune
-python scripts/01_expand_rules.py                       # seeds   → data/generated/rules_expanded.jsonl
-python scripts/02_generate.py --teacher templates       # rules   → data/generated/candidates.jsonl
-python scripts/03_verify.py                             # grade   → data/verified/pairs.jsonl
-python scripts/04_build_dataset.py                      # format  → data/splits/*.jsonl
+python scripts/01_expand_rules.py                              # 200 seeds → 2,099 rules
+python scripts/02_generate.py                                  # intent teacher → 2,099 candidates
+python scripts/03_verify.py                                    # verifier → 2,099 verified pairs
+python scripts/04_build_dataset.py --extend-from data/splits_v1   # → data/splits/: 1,254 / 224 / 621
 ```
 
-`03_verify.py` prints the compile rate — the number Phase 9 compares everything against.
+### What changed from v1, and why
 
-Then upload `data/splits/` to Kaggle as a private Dataset, and run in a notebook:
+| | v1 | v2 |
+|---|---|---|
+| Seed rules | 69 | **200** (131 new, aimed at v1's failures: GPU/accelerator wording, city names for regions, service names for ports, new instance families) |
+| Seed sentences in the data | **none** — only their intents were used, re-worded by 6 templates | **kept**: 194 hand-written sentences are training rows |
+| Phrasings per family | 6 | 12–14, with durations said many ways ("90 minutes", "half a day", "a fortnight") |
+| Teacher | `templates` — compiled the English, so any wording it could not parse was dropped | `intent` — renders the policy from the intent, so any wording keeps its correct policy |
+| Verified pairs | 473 | **2,099** (100% pass) |
+| Train / val / holdout rows | 287 / 71 / 115 | **1,254 / 224 / 621** |
+
+`--extend-from data/splits_v1` keeps every group v1 saw in the split it was in; only the 131 new
+groups are split. So v1's holdout is still unseen by both models, and the two can be compared on it.
+`data/splits_v1/` is the exact split v1 was trained on, restored from git (see its README).
+
+### Training v2 on Kaggle
+
+Upload the three files in `data/splits/` as a **new** Kaggle Dataset, `ward-splits-v2` (keep the v1
+dataset as it is), then:
 
 ```python
-!pip -q install "transformers>=4.44" peft trl bitsandbytes accelerate datasets
-!python 05_train_qlora.py --config configs/qlora_t4.yaml \
-    --train /kaggle/input/ward-splits/train.jsonl \
-    --val   /kaggle/input/ward-splits/val.jsonl \
-    --out   /kaggle/working/ward-compiler-v1
+!pip -q install -U "transformers>=4.44" peft trl bitsandbytes accelerate datasets
+!python 05_train_qlora.py --config qlora_t4.yaml \
+    --train /kaggle/input/ward-splits-v2/train.jsonl \
+    --val   /kaggle/input/ward-splits-v2/val.jsonl \
+    --out   /kaggle/working/ward-compiler-v2
+!python 06_evaluate.py --mode generate --adapter /kaggle/working/ward-compiler-v2 \
+    --split /kaggle/input/ward-splits-v2/val.jsonl --out preds_val_v2.jsonl
+```
+
+About 4× v1's steps — roughly 30–45 min for the 1.5B on a T4 (the §1 table's ~1,400-example
+estimate), 4–6 h for the 7B. Then on the laptop:
+
+```bash
+python scripts/06_evaluate.py --mode score --preds results/preds_val_v2.jsonl --record v2-1.5b
 ```
 
 Download the adapter (~100 MB) and commit it under `adapters/ward-compiler-v1/`. The base model stays
@@ -205,7 +230,7 @@ in the cloud; the adapter is the only artefact you keep.
 
 ---
 
-## 5. Serving it back into Ward
+## 6. Serving it back into Ward
 
 The backend is already shaped for this. `app/compiler/base.py` defines the `Compiler` protocol, and
 `TemplateCompiler` is one implementation. The fine-tuned model becomes another:
@@ -234,7 +259,37 @@ for the viva: the whole system, compiler included, runs on a laptop with no data
 
 ---
 
-## 6. What to record
+## 7. Why fine-tune? The comparison
+
+Every compiler on the same split, graded by the same verifier:
+
+```bash
+# Colab — the untuned base model, given the identical prompt (the baseline):
+!python 06_evaluate.py --mode generate --no-adapter --split /kaggle/input/ward-splits-v2/val.jsonl --out preds_base_val.jsonl
+
+# laptop — templates and a large general model (zero-shot, via WARD_RAG_LLM_* in backend/.env) are
+# predicted here; anything from Colab is passed in:
+python scripts/08_compare.py --preds finetuned=results/preds_v2.jsonl --preds base=results/preds_base_val.jsonl
+```
+
+The table goes to `results/compare_<split>_<time>.md`. Run it on val while things still change, and on
+`test_holdout.jsonl` once, at the end, for the report.
+
+### Sentences that are not rules
+
+The compiler was trained only on rules, so it answers anything with a policy ("hello" → `require-greeting`,
+"what is server ?" → `only-t3a-standard`). Two things sit in front of it — in `generate.py` and in Ward's
+compile endpoint:
+
+1. **Keyword gate** (`looks_like_rule`, in `prompting.py` and `backend/app/compiler/prompt.py`): a sentence
+   that names nothing Ward watches never reaches any model. Accepts all 2,310 training/seed sentences.
+2. **Router** (`backend/app/compiler/router.py`): a general chat model sorts the rest into rule / question /
+   other, and answers questions instead of compiling them. Without one, a question-shape heuristic decides.
+
+The lasting fix is v3: non-rules in the training data, answered with a refusal, so the compiler says it
+itself.
+
+## 8. What to record
 
 Every run appends to `results/eval_runs.csv`. At minimum: run id, base model, adapter, dataset
 version, epochs, LoRA rank, compile rate on validation, and the date. Phase 9 needs a table of these;

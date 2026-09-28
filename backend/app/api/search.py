@@ -32,6 +32,8 @@ class Turn(BaseModel):
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=500)
     history: list[Turn] = Field(default_factory=list, max_length=12)
+    # Resource ids to ask about. Empty: the whole account.
+    scope: list[str] = Field(default_factory=list, max_length=200)
 
 
 def namespace_for(session: Session) -> str:
@@ -52,14 +54,14 @@ def documents_for(session: Session, inventory: InventoryStore) -> list[Doc]:
 
 
 def run_search(query: str, history: list[dict], session: Session, inventory: InventoryStore,
-               search: SearchService) -> dict:
-    return search.ask(query, namespace_for(session), documents_for(session, inventory), history)
+               search: SearchService, scope: list[str] | None = None) -> dict:
+    return search.ask(query, namespace_for(session), documents_for(session, inventory), history, scope)
 
 
 @router.post('/search')
 def search_inventory(req: SearchRequest, session: Session = Depends(get_session),
                      inventory: InventoryStore = Depends(get_inventory), search: SearchService = Depends(get_search)):
-    return run_search(req.query, [t.model_dump() for t in req.history], session, inventory, search)
+    return run_search(req.query, [t.model_dump() for t in req.history], session, inventory, search, req.scope)
 
 
 @router.get('/search/status')
