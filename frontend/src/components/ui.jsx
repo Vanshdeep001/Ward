@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
-import { ArrowRight } from 'lucide-react'
+import { useState } from 'react'
+import { ArrowRight, Check, ChevronDown, Copy, RotateCw, ServerOff, TriangleAlert } from 'lucide-react'
 
 // Sticker-style mark, after Arc's logo: a scalloped-top shield with a white outline and a warm core.
 export function WardMark({ emergency, size = 32 }) {
@@ -196,15 +197,133 @@ export function Stat({ label, value, hint, tone = 'slate', icon }) {
   )
 }
 
-export function Loading({ label = 'Loading…' }) {
+/* While a page's data loads: Ward's shield in a medallion, a gradient arc circling it (the one moving
+   part), and the page's shape sketched underneath, so the wait shows what is coming rather than a blank.
+   Everything stops for people who ask for reduced motion. */
+export function Loading({ label = 'Loading…', skeleton = true }) {
   return (
-    <div className="flex items-center justify-center gap-2 py-16 text-sm text-slate-400">
-      <span className="h-2 w-2 animate-pulse rounded-full bg-arc-400" />
-      {label}
+    <div role="status" aria-live="polite" className="animate-rise">
+      <div className="flex flex-col items-center pb-10 pt-12">
+        <span className="relative grid h-24 w-24 place-items-center">
+          <span aria-hidden className="loader-halo absolute -inset-6 rounded-full bg-[radial-gradient(circle,rgb(142_150_255/0.38),rgb(245_163_199/0.2)_48%,transparent_70%)] blur-md" />
+          <svg aria-hidden viewBox="0 0 96 96" className="loader-arc absolute inset-0 h-24 w-24">
+            <defs>
+              <linearGradient id="ward-loader-arc" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#3139fb" />
+                <stop offset="55%" stopColor="#e98bbd" />
+                <stop offset="100%" stopColor="#ffb48f" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            <circle cx="48" cy="48" r="44" fill="none" stroke="rgb(49 57 251 / 0.08)" strokeWidth="3" />
+            <circle cx="48" cy="48" r="44" fill="none" stroke="url(#ward-loader-arc)" strokeWidth="3.5" strokeLinecap="round" strokeDasharray="170 277" />
+          </svg>
+          <span className="relative grid h-16 w-16 place-items-center rounded-full bg-white shadow-[0_0_0_6px_rgb(255_255_255/0.7),0_18px_36px_-14px_rgb(49_57_251/0.55)]">
+            <WardMark size={34} />
+          </span>
+        </span>
+        <p className="loader-text mt-6 font-display text-[1.2rem] font-semibold tracking-tight">{label}</p>
+      </div>
+
+      {skeleton && (
+        <div aria-hidden className="space-y-6 opacity-80">
+          <div className="space-y-3">
+            <span className="skeleton block h-3 w-40 rounded-full" />
+            <span className="skeleton block h-9 w-3/4 max-w-2xl rounded-2xl" />
+            <span className="skeleton block h-9 w-1/2 max-w-md rounded-2xl" />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="rounded-3xl border border-slate-200/60 bg-white/60 p-5" style={{ animationDelay: `${i * 120}ms` }}>
+                <span className="skeleton block h-3 w-20 rounded-full" />
+                <span className="skeleton mt-4 block h-7 w-2/3 rounded-xl" />
+                <span className="skeleton mt-3 block h-3 w-full rounded-full" />
+                <span className="skeleton mt-2 block h-3 w-4/5 rounded-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 export function Empty({ children }) {
   return <p className="py-10 text-center text-sm text-slate-500">{children}</p>
+}
+
+/* When a page can't show what it should. Two very different situations get two different messages:
+   Ward's server not answering (the fix is to start it — so the command is right there), and a genuine
+   bug (a plain apology, with the technical detail folded away for whoever needs it). */
+const UNREACHABLE = /not reachable|failed to fetch|networkerror|load failed|econnrefused|→ 50[234]|http proxy error|fetch failed/i
+
+export function isUnreachable(error) {
+  return Boolean(error?.unreachable) || UNREACHABLE.test(String(error?.message ?? error ?? ''))
+}
+
+export function ErrorState({ error, onRetry, title }) {
+  const offline = isUnreachable(error) || error == null
+  const detail = String(error?.message ?? error ?? '')
+  const [copied, setCopied] = useState(false)
+  const command = 'cd backend; python -m uvicorn app.main:app --port 8000'
+  const Icon = offline ? ServerOff : TriangleAlert
+
+  return (
+    <div role="alert" className="animate-rise mx-auto max-w-2xl pt-10">
+      <div className="group/aura relative overflow-hidden rounded-[30px] border border-slate-200/70 bg-white px-8 pb-8 pt-9 text-center shadow-[0_1px_2px_rgb(15_23_42/0.04),0_30px_60px_-40px_rgb(23_23_60/0.5)]">
+        <span className="relative mx-auto grid h-20 w-20 place-items-center">
+          <span aria-hidden className={`absolute -inset-4 rounded-full blur-md ${offline ? 'bg-[radial-gradient(circle,rgb(142_150_255/0.35),transparent_70%)]' : 'bg-[radial-gradient(circle,rgb(247_130_125/0.35),transparent_70%)]'}`} />
+          <span className={`relative grid h-16 w-16 place-items-center rounded-full bg-white shadow-[0_0_0_6px_rgb(255_255_255/0.7),0_16px_32px_-14px_rgb(23_23_60/0.5)] ${offline ? 'text-arc-600' : 'text-coral-500'}`}>
+            <Icon size={28} strokeWidth={1.8} />
+          </span>
+        </span>
+
+        <h2 className="mt-6 font-display text-[1.9rem] font-semibold leading-tight tracking-tight text-ink">
+          {title ?? (offline ? 'Ward can’t reach its server' : 'Something went wrong on this page')}
+        </h2>
+        <p className="mx-auto mt-2 max-w-md text-[14.5px] leading-relaxed text-slate-500">
+          {offline
+            ? 'The page is fine — the backend isn’t answering. Start it, then try again. Nothing in your account is affected; Ward only reads.'
+            : 'This is a bug on Ward’s side, not something you did. Trying again usually clears it.'}
+        </p>
+
+        {offline && (
+          <div className="mx-auto mt-5 flex max-w-md items-center gap-2 rounded-2xl bg-paper px-4 py-2.5 text-left ring-1 ring-inset ring-slate-200/80">
+            <code className="flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">
+              <span className="select-none text-arc-500">$ </span>{command}
+            </code>
+            <button
+              type="button"
+              onClick={() => { navigator.clipboard?.writeText(command); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
+              className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11.5px] font-bold text-slate-500 transition hover:bg-white hover:text-ink"
+            >
+              {copied ? <><Check size={12} className="text-emerald-600" /> Copied</> : <><Copy size={12} /> Copy</>}
+            </button>
+          </div>
+        )}
+
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="group mt-6 inline-flex items-center gap-2.5 rounded-full bg-arc-600 py-1.5 pl-5 pr-1.5 text-[14px] font-bold text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.2),0_12px_26px_-12px_rgb(49_57_251/0.8)] transition hover:bg-arc-700"
+          >
+            Try again
+            <span className="grid h-8 w-8 place-items-center rounded-full bg-white/20 transition duration-500 group-hover:rotate-180">
+              <RotateCw size={14} strokeWidth={2.5} />
+            </span>
+          </button>
+        )}
+
+        {detail && !offline && (
+          <details className="group/details mx-auto mt-6 max-w-md text-left">
+            <summary className="flex cursor-pointer list-none items-center justify-center gap-1 text-[12px] font-semibold text-slate-400 hover:text-slate-600">
+              Technical details <ChevronDown size={13} className="transition group-open/details:rotate-180" />
+            </summary>
+            <pre className="mt-2 whitespace-pre-wrap break-words rounded-xl bg-paper px-3.5 py-2.5 font-mono text-[11.5px] text-slate-600 ring-1 ring-inset ring-slate-200/80">{detail}</pre>
+          </details>
+        )}
+        <Aura color={offline ? 'arc' : 'coral'} />
+      </div>
+    </div>
+  )
 }

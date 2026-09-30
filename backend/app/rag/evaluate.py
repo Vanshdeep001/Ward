@@ -5,16 +5,24 @@
     python -m app.rag.evaluate --pace 20          # seconds between model calls (Groq free tier: ~20)
 
 Retrieval, per setup (local BM25 · Pinecone · Pinecone + reranker), over the cases that have gold ids:
-  recall@k   share of the right resources in the top k (out of at most k — a question with 11 right
-             answers can only be asked to find 6 of them in 6 slots)
-  hit@1      the first result is a right one
-  MRR        1 / rank of the first right result, averaged
+  context recall      recall@k — share of the right resources in the top k (out of at most k: a question
+                      with 11 right answers can only be asked to find 6 of them in 6 slots)
+  precision@k         share of what was retrieved that was relevant
+  context precision   RAGAS-style: precision@i averaged over the ranks holding a right resource
+  hit@1, MRR          is the first result right; 1 / rank of the first right one
 
-Answers, through the full pipeline with the best available setup:
-  citation precision / recall   the resources the answer cites against the gold ones
-  grounded                      every ₹ amount and count in the answer is in the retrieved documents
-  behaviour                     per category: refused when it should be, says "none" when nothing
-                                matches, states the right total, does not obey a poisoned tag
+Answers, through the full pipeline with the best retrieval setup:
+  faithfulness        judge: share of the answer's factual claims the retrieved context supports
+  answer relevance    judge: how directly the answer addresses the question, 1-5, reported 0-1
+  grounded            deterministic: every ₹ amount and count in the answer is in the documents
+  citation P / R      the resources the answer cites against the gold ones
+  behaviour           per category: refused when it should be, says "none" when nothing matches,
+                      states the right total, does not obey a poisoned tag
+  latency             p50 / p95 end to end, and split into retrieval and generation
+  tokens, cost        per answer, from the API's usage; cost at --price-in / --price-out ($ per 1M tokens)
+
+The judge is a different model from the answerer (--judge-model, default qwen/qwen3.8-27b), so no model
+grades its own answers.
 
 Results go to backend/evals/results/rag-<timestamp>.json and .md, so runs can be compared.
 """
@@ -33,6 +41,7 @@ from app.guardian import findings as finder
 from app.inventory.sample import SampleInventory
 from app.rag import evalset
 from app.rag.answer import LlmAnswerer
+from app.rag.judge import Judge
 from app.rag.documents import OVERVIEW_ID, build_documents
 from app.rag.service import SearchService
 from app.rag.stores import LocalStore, PineconeStore
@@ -48,11 +57,27 @@ def retrieval_scores(ranked: list[str], gold: list[str], k: int) -> dict:
     ranked = [r for r in ranked if r != OVERVIEW_ID][:k]
     found = len(set(ranked) & set(gold))
     first = next((i for i, r in enumerate(ranked, 1) if r in gold), None)
+    # Context precision, the RAGAS way: precision@i averaged over the ranks i that hold a right resource,
+    # so a right answer in first place counts for more than the same answer in sixth.
+    hits, precisions = 0, []
+    for i, r in enumerate(ranked, 1):
+        if r in gold:
+            hits += 1
+            precisions.append(hits / i)
     return {
-        'recall': found / min(len(gold), k),
+        'recall': found / min(len(gold), k),                     # context recall
+        'precision': found / len(ranked) if ranked else 0.0,     # precision@k: how much retrieved was relevant
+        'ctx_precision': sum(precisions) / len(precisions) if precisions else 0.0,
         'hit1': 1.0 if ranked and ranked[0] in gold else 0.0,
         'mrr': 1 / first if first else 0.0,
     }
+
+
+def percentile(xs, q: float) -> float | None:
+    xs = sorted(x for x in xs if x is not None)
+    if not xs:
+        return None
+    return round(xs[min(len(xs) - 1, int(round(q * (len(xs) - 1))))], 3)
 
 
 def citation_scores(cited: list[str], gold: list[str]) -> dict:
@@ -81,7 +106,7 @@ def behaviour(case: evalset.Case, result: dict) -> bool:
 
 def mean(xs) -> float | None:
     xs = [x for x in xs if x is not None]
-    return round(statistics.fmean(xs), 3) if xs else None
+    return round(statistics.fmean(xs), 8) if xs else None  # 8 places: a per-answer cost is ~$0.0003
 
 
 # ─── Setups ──────────────────────────────────────────────────────────────────
@@ -123,42 +148,67 @@ def run_retrieval(cases, stores: dict, docs, k: int, log) -> dict:
             ranked = [h.id for h in store.search(NAMESPACE, c.question, k)]
             rows.append({'case': c.id, 'category': c.category, 'question': c.question, 'gold': c.gold,
                          'ranked': ranked, **retrieval_scores(ranked, c.gold, k)})
-        report[name] = {'overall': _summary(rows, ('recall', 'hit1', 'mrr')), 'byCategory': _by_category(rows, ('recall', 'hit1', 'mrr')), 'rows': rows}
+        metrics = ('recall', 'precision', 'ctx_precision', 'hit1', 'mrr')
+        report[name] = {'overall': _summary(rows, metrics), 'byCategory': _by_category(rows, metrics), 'rows': rows}
         o = report[name]['overall']
-        log(f'  {name:<16} recall@{k} {o["recall"]:.2f}   hit@1 {o["hit1"]:.2f}   MRR {o["mrr"]:.2f}   ({len(rows)} questions)')
+        log(f'  {name:<16} recall@{k} {o["recall"]:.2f}   precision@{k} {o["precision"]:.2f}   '
+            f'ctx-precision {o["ctx_precision"]:.2f}   hit@1 {o["hit1"]:.2f}   MRR {o["mrr"]:.2f}   ({len(rows)} questions)')
     return report
 
 
-def run_answers(cases, store, answerer, docs, pace: float, log) -> dict:
+def run_answers(cases, store, answerer, docs, pace: float, log, judge: Judge | None = None,
+                price: tuple[float, float] = (0.0, 0.0)) -> dict:
     service = SearchService(store if store.name != 'local' else None, answerer)
     service.adopt(NAMESPACE, docs)  # already indexed; rewriting it now would leave Pinecone briefly empty
     rows = []
     for i, c in enumerate(cases, 1):
         result, took = _ask(service, c, docs, answerer, log)
         cited = [s['id'] for s in result['sources'] if s['cited']]
+        timing, usage = result.get('timing') or {}, result.get('usage') or {}
         row = {
             'case': c.id, 'category': c.category, 'question': c.question, 'gold': c.gold, 'expect': c.expect,
             'answer': result['answer'], 'cited': cited, 'retrieved': result['retrieved'],
             'generator': result['generator'], 'blocked': result['checks']['blocked'],
             'unsupported': result['checks']['unsupported'], 'seconds': took,
+            'retrieval_s': timing['retrievalMs'] / 1000 if 'retrievalMs' in timing else None,
+            'generation_s': timing['generationMs'] / 1000 if 'generationMs' in timing else None,
+            'prompt_tokens': usage.get('prompt'), 'completion_tokens': usage.get('completion'),
+            'cost_usd': ((usage.get('prompt') or 0) * price[0] + (usage.get('completion') or 0) * price[1]) / 1e6 if usage else None,
             'grounded': not result['checks']['unsupported'],
             'behaviour': behaviour(c, result),
         }
         if c.gold and c.category in ('lookup', 'filter', 'paraphrase'):
             row.update({f'cite_{k}': v for k, v in citation_scores(cited, c.gold).items()})
+        # The judge reads exactly what the answerer was shown. Blocked questions never reached a model.
+        judged = None
+        if judge and not result['checks']['blocked'] and result['generator'] != 'extractive':
+            judged = judge.score(c.question, result.get('context') or [], result['answer'])
+            if pace:
+                time.sleep(pace / 2)
+        if judged:
+            row.update(faithfulness=judged['faithfulness'], relevance=judged['relevanceScore'],
+                       relevance_1to5=judged['relevance'], claims=len(judged['claims']),
+                       unsupported_claims=judged['unsupportedClaims'], judge_reason=judged['reason'])
         rows.append(row)
-        mark = '✓' if row['behaviour'] and row['grounded'] else '✗'
-        log(f'  {mark} [{i:>2}/{len(cases)}] {c.category:<10} {c.question[:60]}')
+        mark = '✓' if row['behaviour'] and row['grounded'] and row.get('faithfulness', 1) == 1 else '✗'
+        extra = f"  faithful {row['faithfulness']:.2f} · relevant {row['relevance_1to5']}/5" if judged else ''
+        log(f'  {mark} [{i:>2}/{len(cases)}] {c.category:<10} {c.question[:55]:55}{extra}')
         if pace and result['checks']['blocked'] not in ('action', 'injection') and i < len(cases):
             time.sleep(pace)  # blocked questions never reach the model, so they cost no quota
-    metrics = ('behaviour', 'grounded', 'cite_precision', 'cite_recall', 'seconds')
-    return {'overall': _summary(rows, metrics), 'byCategory': _by_category(rows, metrics), 'rows': rows}
+    metrics = ('behaviour', 'grounded', 'faithfulness', 'relevance', 'cite_precision', 'cite_recall', 'seconds',
+               'retrieval_s', 'generation_s', 'prompt_tokens', 'completion_tokens', 'cost_usd')
+    answered = [r for r in rows if not r['blocked']]
+    latency = {name: {'p50': percentile([r.get(name) for r in answered], 0.5),
+                      'p95': percentile([r.get(name) for r in answered], 0.95)}
+               for name in ('seconds', 'retrieval_s', 'generation_s')}
+    return {'overall': _summary(rows, metrics), 'byCategory': _by_category(rows, metrics), 'latency': latency,
+            'judged': sum('faithfulness' in r for r in rows), 'rows': rows}
 
 
 def _ask(service, case, docs, answerer, log, retries: int = 2):
     for attempt in range(retries + 1):
         started = time.monotonic()
-        result = service.ask(case.question, NAMESPACE, docs)
+        result = service.ask(case.question, NAMESPACE, docs, include_context=True)
         took = round(time.monotonic() - started, 2)
         fell_back = answerer is not None and result['generator'] == 'extractive' and not result['checks']['blocked']
         if not fell_back or attempt == retries:
@@ -183,10 +233,11 @@ def markdown(report: dict) -> str:
              f"{report['documents']} documents · {report['cases']} questions · k = {report['k']} · "
              f"answer model: {report.get('model') or '—'}", '']
     if report.get('retrieval'):
-        lines += ['## Retrieval', '', '| Setup | recall@k | hit@1 | MRR |', '|---|---|---|---|']
+        lines += ['## Retrieval', '',
+                  '| Setup | context recall@k | precision@k | context precision | hit@1 | MRR |', '|---|---|---|---|---|---|']
         for name, r in report['retrieval'].items():
             o = r['overall']
-            lines.append(f"| {name} | {o['recall']:.2f} | {o['hit1']:.2f} | {o['mrr']:.2f} |")
+            lines.append(f"| {name} | {o['recall']:.2f} | {o['precision']:.2f} | {o['ctx_precision']:.2f} | {o['hit1']:.2f} | {o['mrr']:.2f} |")
         lines += ['', '### By category (recall@k)', '']
         cats = sorted({c for r in report['retrieval'].values() for c in r['byCategory']})
         lines += ['| Setup | ' + ' | '.join(cats) + ' |', '|---|' + '---|' * len(cats)]
@@ -195,21 +246,33 @@ def markdown(report: dict) -> str:
     if report.get('answers'):
         a = report['answers']
         o = a['overall']
-        lines += ['', f"## Answers (retrieval: {report['answerSetup']})", '',
-                  f"- Behaviour correct: **{o['behaviour']:.0%}**",
-                  f"- Grounded (every number is in the documents): **{o['grounded']:.0%}**",
-                  f"- Citation precision: **{(o['cite_precision'] or 0):.2f}** · recall: **{(o['cite_recall'] or 0):.2f}**",
-                  f"- Mean latency: {o['seconds']:.1f} s", '',
-                  '| Category | n | behaviour | grounded | cite P | cite R |', '|---|---|---|---|---|---|']
+        fmt = lambda v: '—' if v is None else f'{v:.2f}'  # noqa: E731
+        pct = lambda v: '—' if v is None else f'{v:.0%}'  # noqa: E731
+        lat = a.get('latency', {})
+        tokens = (o.get('prompt_tokens') or 0) + (o.get('completion_tokens') or 0)
+        lines += ['', f"## Answers (retrieval: {report['answerSetup']}, answers: {report['model']}, judge: {report.get('judge') or '—'})", '',
+                  '| Metric | Score | How it is measured |', '|---|---|---|',
+                  f"| **Faithfulness** | **{pct(o.get('faithfulness'))}** | judge: share of factual claims the retrieved context supports ({a.get('judged', 0)} answers judged) |",
+                  f"| **Answer relevance** | **{pct(o.get('relevance'))}** | judge: 1-5, how directly the answer addresses the question |",
+                  f"| Grounded numbers | {pct(o.get('grounded'))} | every ₹ amount and count appears in the documents |",
+                  f"| Citation precision / recall | {fmt(o.get('cite_precision'))} / {fmt(o.get('cite_recall'))} | cited resources against the golden ones |",
+                  f"| Behaviour | {pct(o.get('behaviour'))} | refusals, 'none' answers, totals, poisoned tags |",
+                  f"| Latency p50 / p95 | {fmt(lat.get('seconds', {}).get('p50'))} s / {fmt(lat.get('seconds', {}).get('p95'))} s | end to end |",
+                  f"| — retrieval p50 / p95 | {fmt(lat.get('retrieval_s', {}).get('p50'))} s / {fmt(lat.get('retrieval_s', {}).get('p95'))} s | search + rerank |",
+                  f"| — generation p50 / p95 | {fmt(lat.get('generation_s', {}).get('p50'))} s / {fmt(lat.get('generation_s', {}).get('p95'))} s | the answer model |",
+                  f"| Tokens per answer | {tokens:.0f} ({o.get('prompt_tokens') or 0:.0f} in · {o.get('completion_tokens') or 0:.0f} out) | from the API's usage |",
+                  f"| Cost per 1,000 answers | ${(o.get('cost_usd') or 0) * 1000:.2f} | at ${report.get('price', [0, 0])[0]} / ${report.get('price', [0, 0])[1]} per 1M tokens in / out |",
+                  '', '| Category | n | faithful | relevant | grounded | behaviour | cite P | cite R |', '|---|---|---|---|---|---|---|---|']
         for c, s in a['byCategory'].items():
-            fmt = lambda v: '—' if v is None else f'{v:.2f}'  # noqa: E731
-            lines.append(f"| {c} | {s['n']} | {fmt(s['behaviour'])} | {fmt(s['grounded'])} | {fmt(s['cite_precision'])} | {fmt(s['cite_recall'])} |")
-        failures = [r for r in a['rows'] if not (r['behaviour'] and r['grounded'])]
+            lines.append(f"| {c} | {s['n']} | {fmt(s.get('faithfulness'))} | {fmt(s.get('relevance'))} | {fmt(s['grounded'])} | "
+                         f"{fmt(s['behaviour'])} | {fmt(s['cite_precision'])} | {fmt(s['cite_recall'])} |")
+        failures = [r for r in a['rows'] if not (r['behaviour'] and r['grounded'] and r.get('faithfulness', 1) == 1)]
         if failures:
             lines += ['', '### Failures', '']
             for r in failures:
                 why = [] if r['behaviour'] else ['behaviour']
                 why += [f"unsupported {', '.join(r['unsupported'])}"] if r['unsupported'] else []
+                why += [f"unsupported claim: {c}" for c in r.get('unsupported_claims', [])[:2]]
                 lines.append(f"- **{r['case']}** “{r['question']}” — {'; '.join(why)}  \n  > {r['answer'][:300].replace(chr(10), ' ')}")
     return '\n'.join(lines) + '\n'
 
@@ -222,6 +285,10 @@ def main(argv=None) -> int:
     p.add_argument('--pace', type=float, default=20.0, help='seconds between model calls (rate limits)')
     p.add_argument('--categories', help='comma-separated subset, e.g. filter,paraphrase')
     p.add_argument('--out', type=Path, default=RESULTS)
+    p.add_argument('--judge-model', default='qwen/qwen3.8-27b',
+                   help='the judging model — keep it different from the answering one; "none" skips judging')
+    p.add_argument('--price-in', type=float, default=0.15, help='answer model, $ per 1M input tokens (a list-price assumption)')
+    p.add_argument('--price-out', type=float, default=0.60, help='answer model, $ per 1M output tokens')
     args = p.parse_args(argv)
 
     def log(msg):
@@ -246,15 +313,22 @@ def main(argv=None) -> int:
         if not settings.rag_llm_key:
             log('\nAnswers: skipped — WARD_RAG_LLM_KEY is not set.')
         else:
-            best = 'pinecone+rerank' if 'pinecone+rerank' in stores else ('pinecone' if 'pinecone' in stores else 'local')
+            # Answer with whichever setup retrieved best in this run (MRR), not the one assumed to.
+            if report.get('retrieval'):
+                best = max(report['retrieval'], key=lambda name: report['retrieval'][name]['overall']['mrr'])
+            else:
+                best = 'pinecone+rerank' if 'pinecone+rerank' in stores else ('pinecone' if 'pinecone' in stores else 'local')
             answerer = LlmAnswerer(settings.rag_llm_url, settings.rag_llm_key, settings.rag_llm_model)
-            report.update(model=settings.rag_llm_model, answerSetup=best)
+            judge = None if args.judge_model == 'none' else Judge(settings.rag_llm_url, settings.rag_llm_key, args.judge_model)
+            report.update(model=settings.rag_llm_model, answerSetup=best, judge=None if judge is None else args.judge_model,
+                          price=[args.price_in, args.price_out])
             est = sum(c.category not in ('action', 'injection') for c in cases) * args.pace / 60
             log(f'\nAnswers with {settings.rag_llm_model}, retrieval {best} (about {est:.0f} min at --pace {args.pace:g})')
             store = stores[best]
             if args.answers_only:
                 index(store, docs, log)
-            report['answers'] = run_answers(cases, store, answerer, docs, args.pace, log)
+            report['answers'] = run_answers(cases, store, answerer, docs, args.pace, log, judge,
+                                            (args.price_in, args.price_out))
 
     args.out.mkdir(parents=True, exist_ok=True)
     stem = args.out / f"rag-{datetime.now():%Y%m%d-%H%M}"

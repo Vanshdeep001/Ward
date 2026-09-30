@@ -7,6 +7,10 @@
     # on the laptop, where the verifier lives
     python 06_evaluate.py --mode score --preds results/preds_val.jsonl
 
+    # a quantized GGUF served by Ollama on the laptop — no GPU needed
+    python 06_evaluate.py --mode generate --url http://127.0.0.1:11434/v1 --model ward-compiler \
+        --out results/preds_val_q8.jsonl
+
 The metric is **compile rate**: the share of predictions that pass the same fixtures the training
 pairs passed. Not BLEU, not exact match — a policy can be written three ways and still be right, and
 a policy one character off is still wrong. The verifier is the only judge that knows the difference.
@@ -22,7 +26,45 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def generate_via_server(args) -> None:
+    """The same predictions, from a model served over HTTP — Ollama, 07_serve.py, vLLM.
+
+    This is how a quantized GGUF is measured: it runs on the laptop CPU, so no GPU box is needed, and it
+    is asked exactly what Ward asks it (the chat format, greedy, 400 tokens). Seconds per rule are recorded
+    too, because speed is the reason to quantize and accuracy is what it might cost.
+    """
+    import time
+
+    import httpx
+
+    rows = [json.loads(line) for line in args.split.read_text(encoding='utf-8').splitlines() if line.strip()]
+    if args.limit:
+        rows = rows[:args.limit]
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    url = args.url.rstrip('/') + '/chat/completions'
+    seconds = []
+    with httpx.Client(timeout=600) as client, args.out.open('w', encoding='utf-8') as fh:
+        for i, row in enumerate(rows, 1):
+            started = time.perf_counter()
+            response = client.post(url, json={'model': args.model, 'messages': row['messages'][:-1],
+                                              'temperature': 0, 'max_tokens': 400})
+            response.raise_for_status()
+            seconds.append(time.perf_counter() - started)
+            text = response.json()['choices'][0]['message']['content']
+            fh.write(json.dumps({'meta': row['meta'], 'prediction': _strip_fences(text),
+                                 'reference': row['messages'][-1]['content'], 'seconds': round(seconds[-1], 2)},
+                                ensure_ascii=False) + '\n')
+            if i % 10 == 0 or i == len(rows):
+                print(f'  {i}/{len(rows)}  last {seconds[-1]:.1f}s')
+    ordered = sorted(seconds)
+    print(f'{len(rows)} predictions -> {args.out}')
+    print(f'seconds per rule: median {ordered[len(ordered) // 2]:.1f}, slowest {ordered[-1]:.1f} '
+          f'(the first includes loading the model)')
+
+
 def generate(args) -> None:
+    if args.url:
+        return generate_via_server(args)
     import torch
     from peft import PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -150,6 +192,10 @@ def main() -> None:
     ap.add_argument('--mode', choices=['generate', 'score'], required=True)
     ap.add_argument('--adapter', type=Path, help='generate: the trained adapter directory')
     ap.add_argument('--no-adapter', action='store_true', help='generate: the untuned base model — the baseline')
+    ap.add_argument('--url', help='generate: an OpenAI-compatible server instead of a local GPU, '
+                                  'e.g. http://127.0.0.1:11434/v1 for Ollama')
+    ap.add_argument('--model', default='ward-compiler', help='generate --url: the model name the server knows')
+    ap.add_argument('--limit', type=int, default=0, help='generate --url: only the first N rows (a quick check)')
     ap.add_argument('--base-model', default='Qwen/Qwen2.5-Coder-1.5B-Instruct')
     ap.add_argument('--split', type=Path, default=ROOT / 'data' / 'splits' / 'val.jsonl')
     ap.add_argument('--out', type=Path, default=ROOT / 'results' / 'preds_val.jsonl')

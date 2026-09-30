@@ -73,3 +73,7 @@ wandb/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Model weights (downloaded from Hugging Face, never committed)
+*.gguf
+finetune/models/

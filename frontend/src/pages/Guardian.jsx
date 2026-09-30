@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { ArrowRight, Check, Copy, Lock, PiggyBank, Settings2, ShieldAlert, TrendingUp } from 'lucide-react'
 import { useFindings } from '../api/hooks.js'
 import { rupees, shortDate } from '../lib/format.js'
-import { Aura, Loading } from '../components/ui.jsx'
+import { Aura, ErrorState, Loading } from '../components/ui.jsx'
 
 /* Guardian: what Ward found without anyone writing a rule. The page leads with how many things are
    worth fixing and what they cost together; each finding is a numbered card — what's wrong, what it
@@ -18,10 +18,11 @@ const FAMILY = {
 const TOP = 3
 
 export default function Guardian() {
-  const { data, isLoading } = useFindings()
+  const { data, isLoading, error, refetch } = useFindings()
   const [showAll, setShowAll] = useState(false)
 
-  if (isLoading) return <Loading />
+  if (isLoading) return <Loading label="Reviewing your account…" />
+  if (!data) return <ErrorState error={error} onRetry={() => refetch()} />
   const findings = data ?? []
   const shown = showAll ? findings : findings.slice(0, TOP)
   const impact = findings.reduce((s, f) => s + (f.monthlyImpact || 0), 0)

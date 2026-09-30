@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AlertOctagon, CheckCircle2, Code2, EyeOff, Gauge, GitMerge, Layers, Lightbulb, RefreshCw, Zap } from 'lucide-react'
 import { useConflicts, useRules } from '../api/hooks.js'
-import { Aura, Loading } from '../components/ui.jsx'
+import { Aura, ErrorState, Loading } from '../components/ui.jsx'
 import YamlBlock from '../components/YamlBlock.jsx'
 
 /* Rule health, told with pictures that carry the argument rather than decorate it:
@@ -42,11 +42,12 @@ const say = (n) => WORDS[n] ?? String(n)
 
 export default function RuleHealth() {
   const { data: conflicts, isLoading: loadingConflicts, refetch, isFetching } = useConflicts()
-  const { data: rules, isLoading: loadingRules } = useRules()
+  const { data: rules, isLoading: loadingRules, error: rulesError, refetch: refetchRules } = useRules()
   const [filter, setFilter] = useState('all')
   const [applied, setApplied] = useState({})
 
   if (loadingConflicts || loadingRules) return <Loading label="Evaluating your rules against the account…" />
+  if (!conflicts || !rules) return <ErrorState error={rulesError} onRetry={() => { refetch(); refetchRules() }} />
 
   const scored = rules.filter((r) => r.quality != null) // new rules stay provisional for two weeks (§22.1)
   const avg = scored.length ? Math.round(scored.reduce((s, r) => s + r.quality, 0) / scored.length) : null

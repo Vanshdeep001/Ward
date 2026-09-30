@@ -1,0 +1,20 @@
+# Ward's fine-tuned policy compiler for Ollama — q8_0 (1.6 GB, practically the same answers as the original).
+#   ollama create ward-compiler -f Modelfile.q8
+# FROM is relative to this file: put the GGUF in finetune/models/.
+FROM ../models/ward-compiler-q8_0.gguf
+
+# The exact chat format the model was trained on (Qwen2.5 ChatML). Ward always sends a system message,
+# so there is no default system prompt to fill in.
+TEMPLATE """{{- range .Messages }}<|im_start|>{{ .Role }}
+{{ .Content }}<|im_end|>
+{{ end }}<|im_start|>assistant
+"""
+
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|endoftext|>"
+# Greedy: the same rule must always produce the same policy.
+PARAMETER temperature 0
+PARAMETER top_k 1
+# The prompt is the rule plus one reference policy, well under 2k tokens; a small context keeps RAM low.
+PARAMETER num_ctx 4096
+PARAMETER num_predict 400

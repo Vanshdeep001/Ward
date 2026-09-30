@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_compiler, get_inventory, get_router, get_session
-from app.compiler import clarify
+from app.compiler import clarify, targets
 from app.compiler.service import compile_rule, draft_for
 from app.config import settings
 from app.engine.custodian import SUPPORTED_RESOURCES, PolicyError, load_policies
@@ -173,7 +173,8 @@ def compile_rule_endpoint(req: CompileRequest, inventory: InventoryStore = Depen
     """
     if not req.choices:
         # A question or small talk gets an answer, not a made-up policy (see app/compiler/router.py).
-        route = router.route(req.english)
+        # Routed without resource names: "algobench" means nothing to the router and can tip a rule into "other".
+        route = router.route(targets.resolve(req.english, inventory.latest()).english)
         if not route.is_rule:
             return {'status': 'not-a-rule', 'english': req.english, 'route': route.kind,
                     'answer': route.answer, 'decidedBy': route.by}

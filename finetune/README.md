@@ -246,16 +246,64 @@ class LlmCompiler:
 Nothing downstream changes. Every draft still goes through the verifier before the user sees it, so a
 hallucinated policy fails exactly the way a bad template would.
 
-**For the laptop demo,** convert the 1.5B adapter to GGUF and run it on CPU:
+### Fast on the laptop: Ollama (6.1)
 
-```bash
-python llama.cpp/convert_hf_to_gguf.py merged-1.5b --outfile ward-1.5b.gguf
-./llama.cpp/llama-quantize ward-1.5b.gguf ward-1.5b-q4.gguf Q4_K_M
-./llama.cpp/llama-server -m ward-1.5b-q4.gguf -c 2048
+`07_serve.py` runs the model in full precision through PyTorch: 30–50 s a rule on this CPU. The same
+model as a quantized GGUF under Ollama (llama.cpp inside) should take a few seconds. Ward needs no code
+change — Ollama speaks the same chat API, so it is two lines in `backend/.env`.
+
+**A. On Colab — export (≈10 min, CPU runtime is fine).** Upload `scripts/09_export_gguf.py`, then:
+
+```python
+from huggingface_hub import login; login()   # a token with WRITE access
+!python 09_export_gguf.py --adapter vansh-deep/ward-compiler-1.5b-v2 --repo vansh-deep/ward-compiler-1.5b-v2-gguf --quants q8_0 q4_k_m
 ```
 
-That is ~1 GB of RAM and runs comfortably inside your 16 GB, no GPU involved. It is also a nice line
-for the viva: the whole system, compiler included, runs on a laptop with no data leaving it.
+It merges the adapter into the base model, converts to GGUF, quantizes, and uploads
+`ward-compiler-q8_0.gguf` (1.6 GB) and `ward-compiler-q4_k_m.gguf` (1.0 GB).
+
+**B. On the laptop — everything on D:, C: is nearly full.**
+
+```powershell
+# 1. model files → D:\Ward\finetune\models (nothing lands in the C: Hugging Face cache)
+D:\Ward\.venv\Scripts\hf.exe download vansh-deep/ward-compiler-1.5b-v2-gguf ward-compiler-q8_0.gguf ward-compiler-q4_k_m.gguf --local-dir D:\Ward\finetune\models
+
+# 2. where Ollama keeps models, and how long it keeps one loaded — set BEFORE installing
+setx OLLAMA_MODELS "D:\Ollama\models"
+setx OLLAMA_KEEP_ALIVE "30m"
+
+# 3. install Ollama itself onto D: (download OllamaSetup.exe from ollama.com/download/windows first)
+& "$env:USERPROFILE\Downloads\OllamaSetup.exe" /DIR="D:\Ollama"
+
+# 4. open a NEW terminal (so it sees the variables), then register both models
+cd D:\Ward\finetune\ollama
+ollama create ward-compiler -f Modelfile.q8
+ollama create ward-compiler-q4 -f Modelfile.q4
+ollama list
+```
+
+**C. Measure before switching** — accuracy (the verifier) and seconds per rule, for each quantization:
+
+```powershell
+cd D:\Ward\finetune\scripts
+python 06_evaluate.py --mode generate --url http://127.0.0.1:11434/v1 --model ward-compiler    --out ../results/preds_val_q8.jsonl
+python 06_evaluate.py --mode score --preds ../results/preds_val_q8.jsonl --record v2-q8-ollama
+python 06_evaluate.py --mode generate --url http://127.0.0.1:11434/v1 --model ward-compiler-q4 --out ../results/preds_val_q4.jsonl
+python 06_evaluate.py --mode score --preds ../results/preds_val_q4.jsonl --record v2-q4-ollama
+```
+
+Compare with the v2 compile rate from the GPU run. Use q4 only if it scores within a point or two of q8.
+
+**D. Point Ward at it** — `backend/.env`, then restart the backend (07_serve.py is no longer needed):
+
+```
+WARD_LLM_URL=http://127.0.0.1:11434/v1
+WARD_LLM_MODEL=ward-compiler
+WARD_LLM_TIMEOUT=60
+```
+
+To go back, restore `http://127.0.0.1:8001/v1` and run 07_serve.py again. Nothing is sent anywhere:
+Ollama listens only on 127.0.0.1, and the model never leaves the laptop.
 
 ---
 

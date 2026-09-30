@@ -8,6 +8,7 @@ export const useRules = () => useQuery({ queryKey: ['rules'], queryFn: api.rules
 export const useCosts = () => useQuery({ queryKey: ['costs'], queryFn: api.costs })
 export const usePredictions = () => useQuery({ queryKey: ['predictions'], queryFn: api.predictions })
 export const useFindings = () => useQuery({ queryKey: ['findings'], queryFn: api.findings })
+export const useRagEvals = () => useQuery({ queryKey: ['rag-evals'], queryFn: api.ragEvals, staleTime: 60_000 })
 export const useConflicts = () => useQuery({ queryKey: ['conflicts'], queryFn: api.conflicts })
 
 /* Connected AWS accounts. One query drives the whole demo-vs-live distinction: an empty list means

@@ -225,8 +225,47 @@ body {
   animation: breathe 2.8s ease-in-out infinite;
 }
 
+/* Chrome paints autofilled fields pale blue; keep the sign-in fields white and the text ink. */
+.auth-input:-webkit-autofill,
+.auth-input:-webkit-autofill:hover,
+.auth-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--color-ink);
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset;
+  caret-color: var(--color-ink);
+  transition: background-color 9999s ease-out 0s;
+}
+
+/* ─── The loader (components/ui.jsx · Loading) ─── */
+@keyframes loader-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes loader-halo {
+  0%, 100% { opacity: 0.7; transform: scale(0.94); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+@keyframes loader-shimmer {
+  to { background-position: -200% 0; }
+}
+.loader-arc { animation: loader-spin 1.5s cubic-bezier(0.55, 0.15, 0.45, 0.85) infinite; }
+.loader-halo { animation: loader-halo 2.8s ease-in-out infinite; }
+.loader-text {
+  background: linear-gradient(90deg, var(--color-ink) 0%, var(--color-ink) 35%, var(--color-arc-600) 48%, #e98bbd 55%, var(--color-ink) 68%, var(--color-ink) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: loader-shimmer 2.4s linear infinite;
+}
+.skeleton {
+  background: linear-gradient(90deg, rgb(49 57 251 / 0.05) 25%, rgb(49 57 251 / 0.1) 40%, rgb(49 57 251 / 0.05) 60%);
+  background-size: 200% 100%;
+  animation: loader-shimmer 1.8s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-rise, .animate-breathe, .animate-sweep, .caret { animation: none; }
+  .loader-arc, .loader-halo, .loader-text, .skeleton { animation: none; }
+  .loader-text { color: var(--color-ink); background: none; }
   .shell { transition: none; }
 }
 

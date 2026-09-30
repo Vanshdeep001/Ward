@@ -15,6 +15,7 @@ Failure never means no answer. Pinecone unreachable → the local index answers;
 → the extractive answer. Either way the response says which ran, and why, in `notice`.
 """
 import logging
+import time
 
 from app.rag import answer as answers
 from app.rag import guardrails
@@ -71,7 +72,7 @@ class SearchService:
     # ─── Ask ─────────────────────────────────────────────────────────────────
 
     def ask(self, question: str, namespace: str, docs: list[Doc], history: list[dict] | None = None,
-            scope: list[str] | None = None) -> dict:
+            scope: list[str] | None = None, include_context: bool = False) -> dict:
         """scope: resource ids the user chose to ask about. Retrieval is then those resources and nothing
         else — no vector search, no overview — ranked by how well each matches the question."""
         verdict = guardrails.screen_question(question)
@@ -79,6 +80,7 @@ class SearchService:
             # Refused before anything is retrieved or any model is asked.
             return _blocked(verdict, retriever='none')
 
+        started = time.perf_counter()
         notices = []
         wanted = set(scope or ())
         focused = [d for d in docs if d.id in wanted]
@@ -90,6 +92,7 @@ class SearchService:
         else:
             hits, retriever = self._retrieve(question, namespace, docs, notices)
             context = self._with_overview(hits, docs)
+        retrieved_at = time.perf_counter()
 
         generator = 'extractive'
         text = None
@@ -102,6 +105,8 @@ class SearchService:
                 notices.append(f'{exc} Showing the matches instead.')
         if text is None:
             text = answers.extractive(question, context)
+        answered_at = time.perf_counter()
+        usage = getattr(self.answerer, 'last_usage', None) if generator != 'extractive' else None
 
         verdict = guardrails.off_topic(text)
         if verdict.blocked:
@@ -130,6 +135,11 @@ class SearchService:
             'retrieved': [h.id for h in hits],  # in ranked order, for evaluation and debugging
             'focus': len(focused),
             'checks': {'blocked': None, 'numbersChecked': numbers.checked, 'unsupported': numbers.unsupported},
+            'timing': {'retrievalMs': round((retrieved_at - started) * 1000, 1),
+                       'generationMs': round((answered_at - retrieved_at) * 1000, 1)},
+            'usage': usage,
+            # What the model was shown, for evaluation (faithfulness is judged against exactly this).
+            **({'context': [{'id': h.id, 'text': h.text} for h in context]} if include_context else {}),
         }
 
     def _retrieve(self, question: str, namespace: str, docs: list[Doc], notices: list[str]) -> tuple[list[Hit], str]:

@@ -6,6 +6,8 @@ os.environ['WARD_POLL_MINUTES'] = '0'
 os.environ.pop('WARD_TELEGRAM_TOKEN', None)
 # Never a developer's real keys: search runs on the local index and the extractive answer unless a test fakes them.
 os.environ['WARD_NO_DOTENV'] = '1'
+# Endpoint tests run as a local admin; tests/test_auth.py switches sign-in back on to test it.
+os.environ['WARD_AUTH_DISABLED'] = '1'
 for key in ('WARD_PINECONE_API_KEY', 'WARD_RAG_LLM_KEY'):
     os.environ.pop(key, None)
 

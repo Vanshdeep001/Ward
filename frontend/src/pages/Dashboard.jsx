@@ -4,7 +4,7 @@ import { useAlerts, useConnection, useCosts, useFindings, useResources } from '.
 import ConnectBanner from '../components/ConnectBanner.jsx'
 import RiskBoard from '../components/RiskBoard.jsx'
 import { rupees } from '../lib/format.js'
-import { Button, HeroButton, Loading, Panel, PanelLink, Stat } from '../components/ui.jsx'
+import { Button, ErrorState, HeroButton, Loading, Panel, PanelLink, Stat } from '../components/ui.jsx'
 import SpendChart from '../components/SpendChart.jsx'
 import BurnBreakdown from '../components/BurnBreakdown.jsx'
 import SavingsCard from '../components/SavingsCard.jsx'
@@ -16,7 +16,8 @@ export default function Dashboard() {
   const resources = useResources()
   const { isDemo } = useConnection()
 
-  if (costs.isLoading) return <Loading />
+  if (costs.isLoading) return <Loading label="Reading your account…" />
+  if (!costs.data) return <ErrorState error={costs.error} onRetry={() => costs.refetch()} />
   const c = costs.data
   const budgetPct = Math.round((c.projectedMonthEnd / c.budget) * 100)
   const openAlerts = alerts.data?.filter((a) => a.status === 'open') ?? []

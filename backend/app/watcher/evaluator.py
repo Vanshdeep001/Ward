@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.compiler.targets import stop_command
+from app.config import settings
 from app.engine.custodian import PolicyError, load_policies, resource_id, run_filters
 from app.inventory.store import Snapshot
 from app.models import Alert, Notification, Rule, Watch
@@ -117,12 +119,12 @@ def _open_alert(session, rule, rtype, rid, resource, event, now) -> Alert:
     ).all()
     for old in existing:
         if old.level == level:  # a snooze expired and the problem is still there
-            old.status, old.snoozed_until, old.message = 'open', None, _message(rule, summary, level, again=True)
+            old.status, old.snoozed_until, old.message = 'open', None, _message(rule, summary, level, again=True, rtype=rtype)
             return old
         old.status, old.resolved_at = 'resolved', now  # warning escalated to alert
 
     alert = Alert(rule_id=rule.id, resource_id=rid, resource_type=rtype, resource_name=summary.name, level=level,
-                  message=_message(rule, summary, level), cost_per_day=summary.cost_per_day, created_at=now)
+                  message=_message(rule, summary, level, rtype=rtype), cost_per_day=summary.cost_per_day, created_at=now)
     session.add(alert)
     session.flush()
     return alert
@@ -133,15 +135,23 @@ def _resolve_alerts(session, rule_id, rid, now):
         alert.status, alert.resolved_at, alert.snoozed_until = 'resolved', now, None
 
 
-def _message(rule, summary, level, again=False) -> str:
+def _message(rule, summary, level, again=False, rtype=None) -> str:
     who = summary.name or summary.id
     what = f' ({summary.detail})' if summary.detail else ''
     running = f', running {summary.running_hours:g}h' if summary.running_hours else ''
     cost = f' It costs ₹{summary.cost_per_day:,.0f}/day.' if summary.cost_per_day else ''
     if level == 'alert':
         lead = 'Still breaking' if again else 'Broke'
-        return f'🚨 {who}{what}{running}. {lead} your rule “{rule.english}”.{cost}'
+        return f'🚨 {who}{what}{running}. {lead} your rule “{rule.english}”.{cost}{_stop_hint(rule, summary, rtype)}'
     return f'⚠️ {who}{what}{running} is getting close to your rule “{rule.english}”.{cost}'
+
+
+def _stop_hint(rule, summary, rtype) -> str:
+    """The rule said "stop it". Ward is read-only (SRS §7), so it hands over the command instead of running it."""
+    if not (rule.intent or {}).get('stop_requested'):
+        return ''
+    command = stop_command(rtype, summary.id, summary.region or settings.region)
+    return f' You asked Ward to stop it — Ward never changes resources, so run: {command}' if command else ''
 
 
 def _record(result, rule, rid, before, after, event):

@@ -67,6 +67,12 @@ class Settings:
     rag_llm_url: str = field(default_factory=lambda: _env('WARD_RAG_LLM_URL', 'https://api.openai.com/v1'))
     rag_llm_key: str | None = field(default_factory=lambda: os.getenv('WARD_RAG_LLM_KEY') or None)
     rag_llm_model: str = field(default_factory=lambda: _env('WARD_RAG_LLM_MODEL', 'gpt-4o-mini'))
+    # Sign-in (app/auth.py). How long a sign-in lasts (the refresh token) and each access token, whether the cookie is HTTPS-only (set true behind TLS),
+    # and whether anyone may create an account (false: only the first account, which becomes the admin).
+    session_days: float = field(default_factory=lambda: float(_env('WARD_SESSION_DAYS', '7')))
+    access_minutes: float = field(default_factory=lambda: float(_env('WARD_ACCESS_MINUTES', '15')))
+    cookie_secure: bool = field(default_factory=lambda: _env('WARD_COOKIE_SECURE', 'false').lower() == 'true')
+    allow_signup: bool = field(default_factory=lambda: _env('WARD_ALLOW_SIGNUP', 'true').lower() == 'true')
     telegram_token: str | None = field(default_factory=lambda: os.getenv('WARD_TELEGRAM_TOKEN'))
     telegram_chat_id: str | None = field(default_factory=lambda: os.getenv('WARD_TELEGRAM_CHAT_ID'))
     cors_origins: tuple[str, ...] = field(

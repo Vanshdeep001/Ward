@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { ArrowUpRight, Bell, BellOff, Cpu, Database, Globe2, HardDrive, ShieldAlert, Tag, Timer } from 'lucide-react'
 import { useAlerts, useRules, useSnooze } from '../api/hooks.js'
 import { ago, rupees } from '../lib/format.js'
-import { Aura, Loading } from '../components/ui.jsx'
+import { Aura, ErrorState, Loading } from '../components/ui.jsx'
 
 /* Alerts as cases, not rows. Eight alerts from two rules are two problems, so the page is organised by
    rule: each broken rule is a card led by how many resources break it, with those resources laid out
@@ -34,12 +34,13 @@ const TONE = {
 }
 
 export default function Alerts() {
-  const { data: alerts, isLoading } = useAlerts()
+  const { data: alerts, isLoading, error, refetch } = useAlerts()
   const { data: rules } = useRules()
   const snooze = useSnooze()
   const [tab, setTab] = useState('open')
 
-  if (isLoading) return <Loading />
+  if (isLoading) return <Loading label="Gathering your alerts…" />
+  if (!alerts) return <ErrorState error={error} onRetry={() => refetch()} />
 
   const by = { open: [], snoozed: [], resolved: [] }
   for (const a of alerts ?? []) by[a.status]?.push(a)

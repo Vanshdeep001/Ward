@@ -1,0 +1,16 @@
+# Ward's fine-tuned policy compiler for Ollama — q4_k_m (1.0 GB, fastest; check its compile rate first).
+#   ollama create ward-compiler-q4 -f Modelfile.q4
+# FROM is relative to this file: put the GGUF in finetune/models/.
+FROM ../models/ward-compiler-q4_k_m.gguf
+
+TEMPLATE """{{- range .Messages }}<|im_start|>{{ .Role }}
+{{ .Content }}<|im_end|>
+{{ end }}<|im_start|>assistant
+"""
+
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|endoftext|>"
+PARAMETER temperature 0
+PARAMETER top_k 1
+PARAMETER num_ctx 4096
+PARAMETER num_predict 400

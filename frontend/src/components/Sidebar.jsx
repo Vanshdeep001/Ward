@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   Bell, Blocks, ChevronsLeft, Eye, Flame, LayoutDashboard, MessageSquare, Pin, Radar, Search, Server, ShieldAlert,
-  MessageSquareText, ShieldCheck, Target,
+  FlaskConical, LogOut, MessageSquareText, ShieldCheck, Target,
 } from 'lucide-react'
 import { useAlerts, useConnection, useCosts, useFindings, useHealth, useResources, useRules } from '../api/hooks.js'
 import { USE_MOCKS } from '../api/client.js'
 import { rupeesShort } from '../lib/format.js'
 import { WardMark } from './ui.jsx'
+import { initials, useMe, useSignOut } from '../auth.jsx'
 
 /* The sidebar is a dark instrument deck floating on the indigo shell.
 
@@ -363,6 +364,8 @@ function Full({ emergency, onEmergency, pinned, account, pathname, costs, readin
           <SpaceButton active={!emergency} dot="bg-arc-300" label="Watching" onClick={() => emergency && onEmergency()} />
           <SpaceButton active={emergency} dot="bg-coral-300" label="Emergency" icon={Flame} onClick={onEmergency} />
         </div>
+
+        <UserCard />
       </div>
     </>
   )
@@ -431,20 +434,20 @@ function Rail({ emergency, onEmergency, pinned, account, pathname, costs, readin
         type="button"
         onClick={onAsk}
         aria-label={`Ask Ward (${isMac ? '⌘K' : 'Ctrl K'})`}
-        className="deck-well mt-4 grid h-10 w-10 shrink-0 place-items-center rounded-2xl text-white transition hover:scale-105"
+        className="deck-well mt-3 grid h-10 w-10 shrink-0 place-items-center rounded-2xl text-white transition hover:scale-105"
       >
         <MessageSquareText size={16} />
       </button>
 
-      <span className="my-3 h-px w-7 shrink-0 bg-white/10" />
+      <span className="my-2 h-px w-7 shrink-0 bg-white/10" />
 
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-1">
         {pinned.map((item) => (
-          <RailLink key={item.to} item={item} active={isActivePath(item, pathname)} size="h-10 w-10 rounded-2xl" />
+          <RailLink key={item.to} item={item} active={isActivePath(item, pathname)} size="h-9 w-10 rounded-2xl" />
         ))}
       </div>
 
-      <span className="my-3 h-px w-7 shrink-0 bg-white/10" />
+      <span className="my-2 h-px w-7 shrink-0 bg-white/10" />
 
       <div className="flex flex-col gap-1">
         {account.map((item) => (
@@ -452,7 +455,7 @@ function Rail({ emergency, onEmergency, pinned, account, pathname, costs, readin
         ))}
       </div>
 
-      <div className="min-h-4 flex-1" />
+      <div className="min-h-2 flex-1" />
 
       {costs && <RailGauge costs={costs} />}
 
@@ -460,16 +463,15 @@ function Rail({ emergency, onEmergency, pinned, account, pathname, costs, readin
         type="button"
         onClick={onEmergency}
         aria-label={emergency ? 'Emergency mode — review' : 'Watching — switch to Emergency'}
-        className={`mt-3 grid h-10 w-10 shrink-0 place-items-center rounded-2xl transition hover:scale-105 ${
+        className={`mt-2 grid h-10 w-10 shrink-0 place-items-center rounded-2xl transition hover:scale-105 ${
           emergency ? 'bg-white text-coral-500' : 'deck-well text-white/70'
         }`}
       >
         {emergency ? <Flame size={16} /> : <Eye size={16} />}
       </button>
 
-      <Link to="/connect" aria-label={`${readings.account} — ${readings.tag}`} className="mt-3 grid h-6 w-6 place-items-center rounded-full hover:bg-white/10">
-        <span className={`h-2 w-2 rounded-full ${readings.tone}`} />
-      </Link>
+
+      <RailUser onUnfold={onUnfold} />
     </>
   )
 }
@@ -559,27 +561,81 @@ function BudgetMeter({ costs }) {
   )
 }
 
-// The same meter stood on end for the rail: it fills upward.
+// The month in the rail: a ring that fills as the budget is spent, with a faint arc ahead of it showing
+// where the current burn rate will land by month end. The percentage sits in the middle, so it reads
+// even at 0% — a stack of unlit segments said nothing.
 function RailGauge({ costs }) {
   const { spentPct, projectedPct, over } = budget(costs)
-  const n = 12
-  const lit = Math.round((Math.min(spentPct, 100) / 100) * n)
+  const r = 17
+  const circumference = 2 * Math.PI * r
+  const arc = (pct) => `${(Math.min(pct, 100) / 100) * circumference} ${circumference}`
+  const tone = over ? '#fca5a0' : '#ffffff'
   return (
     <Link
       to="/app"
       aria-label={`Month to date ${rupeesShort(costs.monthToDate)}, ${spentPct}% of budget, projected ${projectedPct}%`}
-      className="flex flex-col items-center gap-2 rounded-xl px-2 py-1.5 transition hover:bg-white/[0.06]"
+      title={`${rupeesShort(costs.monthToDate)} spent · ${spentPct}% of ${rupeesShort(costs.budget)} · heading for ${projectedPct}%`}
+      className="group flex flex-col items-center rounded-2xl p-1 transition hover:bg-white/[0.06] [@media(max-height:680px)]:hidden"
     >
-      <div className="flex flex-col-reverse gap-[3px]">
-        {Array.from({ length: n }, (_, i) => (
-          <span
-            key={i}
-            className={`h-1.5 w-3 rounded-[2px] ${i < lit ? (over ? 'bg-coral-300' : 'bg-white') : 'bg-white/10'}`}
-          />
-        ))}
-      </div>
-      <span className="text-[9.5px] font-bold tabular-nums text-white/70">{rupeesShort(costs.monthToDate)}</span>
+      <span className="relative grid h-11 w-11 place-items-center">
+        <svg viewBox="0 0 44 44" className="absolute inset-0 -rotate-90" aria-hidden>
+          <circle cx="22" cy="22" r={r} fill="none" stroke="rgb(255 255 255 / 0.12)" strokeWidth="3.5" />
+          {/* where this month is heading at the current pace */}
+          <circle cx="22" cy="22" r={r} fill="none" stroke={tone} strokeOpacity="0.3" strokeWidth="3.5"
+                  strokeLinecap="round" strokeDasharray={arc(projectedPct)} />
+          {/* what has actually been spent */}
+          {spentPct > 0 && (
+            <circle cx="22" cy="22" r={r} fill="none" stroke={tone} strokeWidth="3.5" strokeLinecap="round"
+                    strokeDasharray={arc(spentPct)} className="transition-[stroke-dasharray] duration-700"
+                    style={{ filter: `drop-shadow(0 0 3px ${over ? 'rgb(252 165 160 / 0.7)' : 'rgb(255 255 255 / 0.6)'})` }} />
+          )}
+        </svg>
+        <span className={`relative text-[10.5px] font-bold tabular-nums ${over ? 'text-coral-300' : 'text-white'}`}>
+          {Math.min(spentPct, 999)}%
+        </span>
+      </span>
     </Link>
+  )
+}
+
+// Who is signed in, with the way out. Admins also get the internal System quality page here — the one
+// place it is linked from, since ordinary users have no use for it.
+function UserCard() {
+  const { data: user } = useMe()
+  const signOut = useSignOut()
+  if (!user) return null
+  const admin = user.role === 'admin'
+  return (
+    <div className="deck-well flex items-center gap-2.5 rounded-2xl p-2">
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-[12px] font-bold text-arc-700 shadow-[0_4px_12px_-6px_rgb(10_8_60/0.6)]">
+        {initials(user.name)}
+      </span>
+      <div className="min-w-0 flex-1 leading-tight">
+        <p className="truncate text-[13px] font-semibold text-white">{user.name}</p>
+        <p className="truncate text-[10.5px] text-white/55">{admin ? 'Administrator' : user.email}</p>
+      </div>
+      {admin && (
+        <Link to="/quality" title="System quality — internal" aria-label="System quality (internal)"
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white/60 transition hover:bg-white/10 hover:text-white">
+          <FlaskConical size={15} />
+        </Link>
+      )}
+      <button type="button" onClick={() => signOut.mutate()} disabled={signOut.isPending} title="Sign out" aria-label="Sign out"
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white/60 transition hover:bg-white/10 hover:text-white disabled:opacity-50">
+        <LogOut size={15} />
+      </button>
+    </div>
+  )
+}
+
+function RailUser({ onUnfold }) {
+  const { data: user } = useMe()
+  if (!user) return null
+  return (
+    <button type="button" onClick={onUnfold} title={`Signed in as ${user.name} — open to sign out`} aria-label={`Signed in as ${user.name}`}
+            className="mt-1.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-white text-[11px] font-bold text-arc-700 transition hover:scale-105">
+      {initials(user.name)}
+    </button>
   )
 }
 

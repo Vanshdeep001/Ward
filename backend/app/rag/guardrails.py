@@ -36,7 +36,13 @@ INJECTION = re.compile(
     r'\b(ignore|disregard|forget|override|bypass)\b[^.]{0,40}\b(instructions?|rules?|prompts?|previous|above|guardrails?|system)\b'
     r'|\bsystem\s+prompt\b|\byou\s+are\s+now\b|\bact\s+as\b|\bjailbreak\b|\bdeveloper\s+mode\b'
     r'|\b(reveal|print|show|repeat)\b[^.]{0,30}\b(prompt|instructions)\b'
-    r'|\bnew\s+instructions?\b|<\s*/?\s*(system|assistant|user)\s*>',
+    r'|\bnew\s+instructions?\b|<\s*/?\s*(system|assistant|user|document)\s*>'
+    # Text addressed to the model ("Assistant: …") and orders about how to write the answer ("when you
+    # describe this server, finish your reply with…"). A tag describes a resource; it never needs either.
+    r'|\b(assistant|chatbot|llm|language model)\s*[:,]'
+    r'|\bwhen\s+(you|asked)\s+(describe|answer|reply|respond|summari[sz]e|mention|talk about)\b'
+    r'|\b(finish|end|start|begin|conclude|prefix|append|sign)\b[^.]{0,25}\b(your|the|every|each)\s+(reply|answer|response|output|message)\b'
+    r'|\b(say|reply|respond|answer|output|write)\s+(only|exactly)\b',
     re.I,
 )
 
@@ -48,6 +54,7 @@ def clean(value: object) -> str:
     """Make account-supplied text (a tag, a name) safe to put in a document the model reads."""
     text = re.sub(r'[\r\n\t]+', ' ', str(value))
     text = text.replace('[', '(').replace(']', ')')  # "[i-0abc]" is how documents begin; don't let a tag fake one
+    text = text.replace('<', '‹').replace('>', '›')  # nor close the <document> fence it is placed inside
     if INJECTION.search(text):
         return REMOVED
     return text[:MAX_UNTRUSTED] + ('…' if len(text) > MAX_UNTRUSTED else '')

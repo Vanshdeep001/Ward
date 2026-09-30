@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 import yaml
 
-from app.compiler import clarify
+from app.compiler import clarify, targets
 from app.compiler.base import Compiler, Draft
 from app.compiler.llm import LlmUnavailable
 from app.compiler.templates import TemplateCompiler
@@ -28,13 +28,23 @@ def compile_rule(english: str, inventory: InventoryStore, region: str, *, skip_c
     compiler = compiler or TemplateCompiler()
     snapshot = inventory.latest()
 
+    # A rule about one named resource: find it first, deterministically, and compile only the rule's shape.
+    scope = targets.resolve(english, snapshot)
+    if scope.status == 'ambiguous':
+        if skip_clarify:
+            return _failed(english, compiler, scope.questions[0]['question'] + ' Name it by its ID instead.')
+        return {'status': 'needs-clarification', 'english': english, 'questions': scope.questions}
+    if scope.status in ('not-found', 'unsupported'):
+        return _failed(english, compiler, scope.message)
+    shape = scope.english  # the sentence with the name replaced by "any instance"; the original if no name
+
     if not skip_clarify:
-        questions = clarify.questions_for(english, snapshot, now)
+        questions = clarify.questions_for(shape, snapshot, now)
         if questions:
             return {'status': 'needs-clarification', 'english': english, 'questions': questions}
 
     try:
-        draft = compiler.compile(english)
+        draft = compiler.compile(shape)
     except LlmUnavailable as exc:
         return _failed(english, compiler, str(exc))
     if draft is None:
@@ -47,14 +57,20 @@ def compile_rule(english: str, inventory: InventoryStore, region: str, *, skip_c
         return _failed(english, compiler, f'The policy includes an actions block ({unsafe}). Ward only '
                                           f'watches and warns; it never changes resources.')
 
+    if scope.targets:
+        draft = _scoped(draft, scope, compiler)
+        if isinstance(draft, dict):
+            return draft
+
     if draft.intent is None:
-        return _unverified(english, compiler, draft, snapshot, region)
+        return {**_unverified(english, compiler, draft, snapshot, region), **_scope_out(scope)}
 
     report = verify(draft.policy_yaml, fixture_gen.generate(draft.intent, now), region)
     if not report.passed:
         return _failed(english, compiler, report.error or _misses(report), report)
 
     return {
+        **_scope_out(scope),
         'status': 'compiled',
         'english': english,
         'kind': draft.kind,
@@ -66,6 +82,39 @@ def compile_rule(english: str, inventory: InventoryStore, region: str, *, skip_c
         'compiler': draft.drafted_by or compiler.name,
         'verifier': _verifier_out(report, attempts=1),
         'simulation': _simulation(draft.policy_yaml, snapshot, region),
+    }
+
+
+def _scoped(draft: Draft, scope: 'targets.Resolution', compiler: Compiler) -> Draft | dict:
+    """Ward, not the model, pins the policy to the resource: the ID filter is added here, after compiling."""
+    try:
+        policy_yaml = targets.scope_policy(draft.policy_yaml, scope.targets)
+    except (yaml.YAMLError, AttributeError, TypeError):
+        return draft  # not a policy document at all — the loader or the verifier reports that properly
+    if policy_yaml is None:
+        kind = targets.SUBJECT[scope.targets[0].resource_type]
+        return _failed(draft.english, compiler, f'The rule “{draft.english}” is not about a {kind}, so it can’t be '
+                                                f'narrowed to {scope.targets[0].name or scope.targets[0].id}.')
+    names = ', '.join(f'{t.name} ({t.id})' if t.name else t.id for t in scope.targets)
+    intent = draft.intent.model_copy(update={'targets': scope.targets, 'stop_requested': scope.stop_requested}) \
+        if draft.intent is not None else None
+    return draft.model_copy(update={
+        'policy_yaml': policy_yaml,
+        'intent': intent,
+        'explanation': f'{draft.explanation.rstrip(".")} — only for {names}.',
+        'assumptions': [f'Pinned to {names} by ID, so renaming {"it" if len(scope.targets) == 1 else "them"} '
+                        f'doesn’t change what the rule watches.',
+                        *scope.assumptions, *draft.assumptions],
+    })
+
+
+def _scope_out(scope: 'targets.Resolution') -> dict:
+    if not scope.targets:
+        return {}
+    return {
+        'scope': [{'id': t.id, 'name': t.name, 'resourceType': t.resource_type} for t in scope.targets],
+        'compiledAs': scope.english,  # the name-free sentence the compiler saw
+        'stopRequested': scope.stop_requested,
     }
 
 

@@ -1,11 +1,12 @@
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { usePredictions } from '../api/hooks.js'
 import { rupees } from '../lib/format.js'
-import { Card, CardHeader, Loading, PageHeader, Stat } from '../components/ui.jsx'
+import { Card, CardHeader, ErrorState, Loading, PageHeader, Stat } from '../components/ui.jsx'
 
 export default function Accuracy() {
-  const { data, isLoading } = usePredictions()
-  if (isLoading) return <Loading />
+  const { data, isLoading, error, refetch } = usePredictions()
+  if (isLoading) return <Loading label="Grading past predictions…" />
+  if (!data) return <ErrorState error={error} onRetry={() => refetch()} />
 
   const graded = data.filter((p) => p.actual != null)
   const errors = graded.map((p) => Math.abs(p.predicted - p.actual) / p.actual)

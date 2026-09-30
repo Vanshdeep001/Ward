@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  AlertTriangle, CheckCircle2, ChevronDown, Code2, FileSearch, Info, ShieldCheck, XCircle,
+  AlertTriangle, CheckCircle2, ChevronDown, Code2, Crosshair, FileSearch, Info, ShieldCheck, Terminal, XCircle,
 } from 'lucide-react'
 import { api } from '../api/client.js'
 import { rupees, shortDate } from '../lib/format.js'
@@ -54,6 +54,37 @@ function normalise(raw) {
   }
 }
 
+/* A rule about particular resources. Ward found them by name, pinned the policy to their IDs itself, and
+   had the model compile only the rule's shape — shown here, so the user sees exactly what was compiled. */
+function Scope({ result }) {
+  return (
+    <div className="mt-4 rounded-xl border border-arc-100 bg-arc-50/60 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-arc-700">
+          <Crosshair size={13} /> Only watches
+        </span>
+        {result.scope.map((t) => (
+          <span key={t.id} className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-sm shadow-sm ring-1 ring-arc-100">
+            <span className="font-semibold text-ink">{t.name ?? t.id}</span>
+            {t.name && <span className="font-mono text-[11px] text-slate-500">{t.id}</span>}
+          </span>
+        ))}
+      </div>
+      {result.compiledAs && (
+        <p className="mt-2 text-sm text-slate-600">
+          Compiled as <span className="font-medium text-ink">“{result.compiledAs}”</span>, then pinned by ID — every other resource is ignored.
+        </p>
+      )}
+      {result.stopRequested && (
+        <p className="mt-2 flex items-start gap-2 text-sm text-slate-600">
+          <Terminal size={15} className="mt-0.5 shrink-0 text-arc-600" />
+          <span>Ward never stops or changes anything. When this breaks, the alert carries the exact stop command for you to run.</span>
+        </p>
+      )}
+    </div>
+  )
+}
+
 // SRS §28 — consequence first, mechanism on request.
 export default function GuardrailCard({ result: raw, onActivate, activating, activated }) {
   const result = normalise(raw)
@@ -77,6 +108,7 @@ export default function GuardrailCard({ result: raw, onActivate, activating, act
           )}
           {result.assumptions.length > 0 && <Pill tone="amber"><Info size={12} /> {result.assumptions.length} assumption{result.assumptions.length > 1 && 's'}</Pill>}
         </div>
+        {result.scope?.length > 0 && <Scope result={result} />}
       </div>
 
       <div className="grid gap-px bg-slate-100 sm:grid-cols-3">

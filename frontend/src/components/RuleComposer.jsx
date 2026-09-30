@@ -228,7 +228,9 @@ export default function RuleComposer({ initialText = '', suggestions = EXAMPLES,
             <>
               <p className="flex items-center gap-2 font-medium"><XCircle size={16} /> Ward couldn’t build a verified policy for this rule</p>
               <p className="mt-1 text-slate-700">{result.verifier.error}</p>
-              <p className="mt-2 text-slate-600">Try naming the resource type and a number — e.g. “No RDS instance larger than db.t3.small”.</p>
+              {!/inventory|Ward only watches|which one/i.test(result.verifier.error ?? '') && (
+                <p className="mt-2 text-slate-600">Try naming the resource type and a number — e.g. “No RDS instance larger than db.t3.small”.</p>
+              )}
             </>
           )}
         </Card>

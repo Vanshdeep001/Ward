@@ -44,9 +44,11 @@ class LlmCompiler:
             response.raise_for_status()
             text = response.json()['choices'][0]['message']['content']
         except httpx.ConnectError as exc:
+            start = ('open the Ollama app (or run `ollama serve`)' if ':11434' in self.url
+                     else 'run `python finetune/scripts/07_serve.py`')
             raise LlmUnavailable(
-                f'The compiler model is not running at {self.url}. Start it with '
-                f'`python finetune/scripts/07_serve.py`, or set WARD_COMPILER=templates.'
+                f'The compiler model is not running at {self.url}. To start it, {start} — '
+                f'or set WARD_COMPILER=templates.'
             ) from exc
         except httpx.TimeoutException as exc:
             raise LlmUnavailable(

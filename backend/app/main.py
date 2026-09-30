@@ -4,11 +4,12 @@ from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from importlib.metadata import version
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import accounts, architect, chat, costs, guardian, resources, rules, search, watch
+from app.api import accounts, architect, auth as auth_api, chat, evals, costs, guardian, resources, rules, search, watch
 from app.api.deps import get_channel, get_compiler, get_database, get_inventory
+from app.auth import current_user, require_admin
 from app.config import settings
 from app.engine import custodian
 from app.rules_service import seed_starter_rules
@@ -51,18 +52,16 @@ app = FastAPI(title='Ward', version='0.2.0', lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
+    allow_credentials=True,  # the session cookie, when the frontend is served from another origin
     allow_methods=['*'],
     allow_headers=['*'],
 )
-app.include_router(rules.router)
-app.include_router(resources.router)
-app.include_router(watch.router)
-app.include_router(accounts.router)
-app.include_router(costs.router)
-app.include_router(guardian.router)
-app.include_router(chat.router)
-app.include_router(search.router)
-app.include_router(architect.router)
+# Open: signing in, and the liveness check. Everything else needs a signed-in user; internal pages, an admin.
+app.include_router(auth_api.router)
+signed_in = [Depends(current_user)]
+for module in (rules, resources, watch, accounts, costs, guardian, chat, search, architect):
+    app.include_router(module.router, dependencies=signed_in)
+app.include_router(evals.router, dependencies=[Depends(require_admin)])
 
 
 @app.get('/health')

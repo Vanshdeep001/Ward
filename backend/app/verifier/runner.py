@@ -8,13 +8,13 @@ from app.verifier.report import FixtureResult, Rates, VerifyReport
 
 def verify(policy_yaml: str, fixtures: list[Fixture], region: str = 'ap-south-1') -> VerifyReport:
     started = perf_counter()
-    expected = sorted(resource_id(f.resource_type, f.resource) for f in fixtures if f.expected)
+    expected = sorted({resource_id(f.resource_type, f.resource) for f in fixtures if f.expected})
 
-    def done(flagged: set[str] | None, error: str | None) -> VerifyReport:
+    def done(flagged: set[int] | None, error: str | None) -> VerifyReport:
         results = []
-        for f in fixtures:
+        for i, f in enumerate(fixtures):
             rid = resource_id(f.resource_type, f.resource)
-            actual = None if flagged is None else rid in flagged
+            actual = None if flagged is None else i in flagged
             results.append(FixtureResult(
                 id=f.id, kind=f.kind, description=f.description, resource_id=rid,
                 expected=f.expected, actual=actual, correct=None if actual is None else actual == f.expected,
@@ -23,7 +23,7 @@ def verify(policy_yaml: str, fixtures: list[Fixture], region: str = 'ap-south-1'
         return VerifyReport(
             passed=passed,
             expected=expected,
-            actual=sorted(flagged or []),
+            actual=sorted({resource_id(fixtures[i].resource_type, fixtures[i].resource) for i in flagged or ()}),
             error=error,
             fixtures=results,
             rates=_rates(results),
@@ -44,12 +44,18 @@ def verify(policy_yaml: str, fixtures: list[Fixture], region: str = 'ap-south-1'
         targets = ', '.join(sorted({p.resource_type for p in policies}))
         return done(None, f"Policy targets {targets}, but this rule is about {', '.join(sorted(fixture_types))}.")
 
-    flagged: set[str] = set()
+    # Results are kept per fixture, not per resource ID: a rule scoped to one resource is tested on several
+    # fixtures that all carry that resource's ID, so those run one at a time.
+    flagged: set[int] = set()
     try:
         for policy in relevant:
-            candidates = [f.resource for f in fixtures if f.resource_type == policy.resource_type]
-            matched, _ = run_filters(policy, candidates)
-            flagged.update(resource_id(policy.resource_type, r) for r in matched)
+            mine = [i for i, f in enumerate(fixtures) if f.resource_type == policy.resource_type]
+            ids = [resource_id(policy.resource_type, fixtures[i].resource) for i in mine]
+            batches = [mine] if len(set(ids)) == len(ids) else [[i] for i in mine]
+            for batch in batches:
+                matched, _ = run_filters(policy, [fixtures[i].resource for i in batch])
+                hit = {resource_id(policy.resource_type, r) for r in matched}
+                flagged.update(i for i in batch if resource_id(policy.resource_type, fixtures[i].resource) in hit)
     except Exception as e:  # a policy that crashes Custodian on realistic resources is a failed policy, not a server error
         return done(None, f'Policy raised {type(e).__name__} while evaluating fixtures: {e}')
 

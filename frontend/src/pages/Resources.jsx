@@ -2,7 +2,7 @@ import { Fragment, useMemo, useState } from 'react'
 import { Boxes, Database, HardDrive, Network, Package, Server, ShieldCheck, UserX } from 'lucide-react'
 import { useResources } from '../api/hooks.js'
 import { ago, rupees } from '../lib/format.js'
-import { Aura, Loading } from '../components/ui.jsx'
+import { Aura, ErrorState, Loading } from '../components/ui.jsx'
 import StateBadge from '../components/StateBadge.jsx'
 
 /* The inventory as a map, not a spreadsheet. The headline says what Ward sees and what it costs, a
@@ -22,7 +22,7 @@ const KIND = {
 const ORDER = Object.keys(KIND)
 
 export default function Resources() {
-  const { data, isLoading } = useResources()
+  const { data, isLoading, error, refetch } = useResources()
   const [type, setType] = useState('all')
   const [ownerless, setOwnerless] = useState(false)
 
@@ -33,7 +33,8 @@ export default function Resources() {
     return ORDER.map((t) => ({ type: t, items: sortForShelf(shown.filter((r) => r.type === t)) })).filter((s) => s.items.length)
   }, [all, type, ownerless])
 
-  if (isLoading) return <Loading />
+  if (isLoading) return <Loading label="Taking inventory…" />
+  if (!data) return <ErrorState error={error} onRetry={() => refetch()} />
 
   return (
     <>

@@ -39,7 +39,7 @@ export default function Rules() {
         onPick={(text) => setParams({ draft: text }, { replace: true })}
       />
 
-      {isLoading ? <Loading /> : <Rack rules={rules} inspecting={inspecting} setInspecting={setInspecting} />}
+      {isLoading ? <Loading label="Loading your guardrails…" skeleton={false} /> : <Rack rules={rules} inspecting={inspecting} setInspecting={setInspecting} />}
     </>
   )
 }

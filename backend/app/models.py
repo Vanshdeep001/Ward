@@ -114,3 +114,38 @@ class Prediction(Base):
     method: Mapped[str] = mapped_column(String(32), default='linear-7d')
     actual: Mapped[float | None] = mapped_column(Float)
     error_pct: Mapped[float | None] = mapped_column(Float)
+
+
+class User(Base):
+    """Someone who signs in to Ward. Sign-up makes users; admins are made from the command line (app/admin.py)."""
+    __tablename__ = 'users'
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id('user'))
+    email: Mapped[str] = mapped_column(String(254), unique=True, index=True)  # stored lower-cased
+    name: Mapped[str] = mapped_column(String(80))
+    # scrypt, salted, in a self-describing string — never the password itself (app/auth.py: hash_password)
+    password_hash: Mapped[str] = mapped_column(String(256))
+    role: Mapped[str] = mapped_column(String(16), default='user')  # user | admin
+    created_at: Mapped[datetime]
+    last_login_at: Mapped[datetime | None]
+
+    refresh_tokens: Mapped[list['RefreshToken']] = relationship(back_populates='user', cascade='all, delete-orphan')
+
+
+class RefreshToken(Base):
+    """One refresh token. A sign-in starts a *family*; every refresh replaces the token with a new one in the
+    same family and marks the old one used. The family ends a fixed time after sign-in (WARD_SESSION_DAYS),
+    at sign-out, or the moment a used token is presented again — someone copied it — which revokes every
+    token in the family. Only a SHA-256 of each token is stored, so a copy of this table can't be replayed."""
+    __tablename__ = 'refresh_tokens'
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    family_id: Mapped[str] = mapped_column(String(32), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
+    created_at: Mapped[datetime]
+    expires_at: Mapped[datetime]      # the family's end: fixed at sign-in, carried by every rotation
+    used_at: Mapped[datetime | None]  # set when swapped for a new one; presenting it again means theft
+    revoked_at: Mapped[datetime | None]
+    user_agent: Mapped[str | None] = mapped_column(String(200))
+
+    user: Mapped[User] = relationship(back_populates='refresh_tokens')

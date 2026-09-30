@@ -31,7 +31,32 @@ class Fixture:
 def generate(intent, now: datetime | None = None) -> list[Fixture]:
     now = now or datetime.now(timezone.utc)
     builder = _BUILDERS[type(intent)]
-    return builder(intent, now)
+    fixtures = builder(intent, now)
+    return _scoped(fixtures, intent.targets) if intent.targets else fixtures
+
+
+def _scoped(fixtures: list[Fixture], targets) -> list[Fixture]:
+    """A rule about one resource must still get the shape right *and* catch nothing else.
+
+    Every shape fixture is re-pointed at the target, so the policy is tested on the resource it is about.
+    Then each positive gets a twin: identical in every way except its ID. The twin must not be flagged —
+    it is what a rule that forgot its scope would catch, i.e. somebody else's server.
+    """
+    from app.engine.custodian import ID_KEYS
+
+    out = []
+    for f in fixtures:
+        target = next((t for t in targets if t.resource_type == f.resource_type), None)
+        if target is None:
+            out.append(f)
+            continue
+        key = ID_KEYS[f.resource_type]
+        out.append(Fixture(f.id, f.kind, f'{f.description} — {target.name or target.id} itself', f.resource_type,
+                           {**f.resource, key: target.id}, f.expected))
+        if f.expected:
+            out.append(Fixture(f'twin-{f.id}', 'negative', f'{f.description}, but a different resource — outside the scope',
+                               f.resource_type, {**f.resource, key: f'{f.resource[key]}-twin'}, False))
+    return out
 
 
 def _ec2_runtime(intent: Ec2RuntimeIntent, now: datetime) -> list[Fixture]:
