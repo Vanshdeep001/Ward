@@ -120,3 +120,22 @@ def test_the_compiler_is_swappable(sample):
     result = compile_rule('No GPU instance runs more than 6 hours', sample, REGION, compiler=NeverCompiles())
     assert result['status'] == 'failed'
     assert result['compiler'] == 'stub'
+
+
+@pytest.mark.parametrize('sentence, hours, gpu', [
+    ('stop gpu instances rnning for more than 10 hours', 10, True),       # a typo of "running"
+    ('Shut down GPU instances after three hours', 3, True),               # no "run" at all, number in words
+    ('Make sure no server stays on longer than half a day', 12, False),
+    ('Stop instances that have been up for over one day', 24, False),
+])
+def test_runtime_rules_are_read_however_they_are_typed(sentence, hours, gpu):
+    """The template reading is what the model's policy is graded against: if it can't read a sentence,
+    a correct policy can only be shown as unverified."""
+    draft = TemplateCompiler().compile(sentence)
+    assert draft is not None and draft.kind == 'ec2-runtime'
+    assert draft.intent.hours == hours and draft.intent.gpu_only is gpu
+
+
+@pytest.mark.parametrize('sentence', ['rules must be reviewed after 3 days', 'hello', 'what is a server'])
+def test_a_duration_alone_does_not_make_a_runtime_rule(sentence):
+    assert TemplateCompiler().compile(sentence) is None

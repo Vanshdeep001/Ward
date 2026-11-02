@@ -126,17 +126,31 @@ app/
   guardian/               findings, rule-conflict detection
   aws/                    cross-account role assumption, the onboarding template
   watcher/                read-only sweep, state machine, evaluator, warning variants
-  notify/                 channels (Telegram, or logged when unconfigured)
+  notify/                 channels (Telegram, email, or recorded when unconfigured)
+  rag/                    Ask Ward: documents, stores, answerer, guardrails, eval set, judge
   api/                    routes
 tests/                    gold policies per intent, broken-policy cases, API, stubbed poller and STS
 ```
 
+### Built since the first version of this README
+
+- **`POST /architect`**: from "what I want to build" to the simplest priced AWS setup. It asks about
+  anything the sentence left open.
+- **Ask Ward, `POST /search`**: RAG over one document per resource, with Pinecone (embeddings and
+  reranker) or a local BM25 index. It has guardrails against action requests, prompt injection and
+  poisoned tags. The evaluation is in `evals/`.
+- **Fine-tuned compiler**: `app/compiler/llm.py` calls any OpenAI-compatible server (Ollama on the
+  laptop). Set it with `WARD_COMPILER=templates|hybrid|llm`. The router (`app/compiler/router.py`)
+  sorts input into rule, question or other first. Training is in `../finetune/`.
+- **Named resources**: "stop my algobench server at ₹500" (`app/compiler/targets.py`).
+- **Sign-in, `/auth`**: scrypt passwords and access/refresh tokens in HttpOnly cookies. Admins are
+  managed with `python -m app.admin`.
+- **Email notifications**, alongside Telegram (`WARD_SMTP_*`, `WARD_ALERT_EMAILS`).
+
+Note: `requirements.txt` is missing `sqlalchemy` and `cryptography`. Install them alongside it.
+
 ## Still to build
 
-- **`POST /architect`** — architecture recommendations. Left for the model phase: unlike everything
-  above, it cannot be computed from the account's own data.
-- **RAG (Phase 3) and fine-tuning (Phase 6)** — both arrive as implementations of the `Compiler`
-  protocol, measured against the template baseline.
 - **Multi-tenant scoping** — `rules`, `watches`, `alerts`, `notifications` and `predictions` need an
   `account_id` and every query needs to filter on it. The `accounts` table and the assume-role path
   are in place; the sweep currently uses the first connected account.

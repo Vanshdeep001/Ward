@@ -5,6 +5,7 @@
     python -m app.admin list
     python -m app.admin create you@example.com --name "Your Name" --admin   # asks for the password
     python -m app.admin set-password you@example.com
+    python -m app.admin test-email                  # after filling in the WARD_SMTP_* settings
 
 Sign-up in the app only ever creates ordinary users, so being an administrator can't be claimed by
 anyone who reaches the sign-up page: it takes access to the server and its database.
@@ -73,6 +74,20 @@ def _read_password(from_stdin: bool) -> str:
     return first
 
 
+def test_email() -> str:
+    """Send one message through the configured channels, so a wrong password shows up now, not at 3 a.m."""
+    from app.config import settings
+    from app.notify.channels import from_settings
+
+    if not settings.smtp_host:
+        raise SystemExit('Email is not set up: fill in WARD_SMTP_HOST, WARD_SMTP_USERNAME and WARD_SMTP_PASSWORD '
+                         'in backend/.env first.')
+    delivery = from_settings(settings).send('Test from Ward. If you can read this, alerts will reach you by email.')
+    if delivery.delivered:
+        return f'Sent ({delivery.channel}). Check your inbox — and the spam folder the first time.'
+    raise SystemExit(f'Not sent: {delivery.error}')
+
+
 def list_users() -> str:
     with get_database().sessions() as session:
         users = session.scalars(select(User).order_by(User.created_at)).all()
@@ -87,6 +102,7 @@ def main(argv=None) -> int:
     sub.add_parser('promote', help='make an account an administrator').add_argument('email')
     sub.add_parser('demote', help='make an administrator an ordinary user').add_argument('email')
     sub.add_parser('list', help='every account and its role')
+    sub.add_parser('test-email', help='send a test alert through the configured email settings')
     create = sub.add_parser('create', help='make an account here, without the sign-up page')
     create.add_argument('email')
     create.add_argument('--name', default='')
@@ -98,6 +114,8 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.command == 'list':
         print(list_users())
+    elif args.command == 'test-email':
+        print(test_email())
     elif args.command == 'create':
         print(create_user(args.email, args.name, _read_password(args.password_stdin), args.admin))
     elif args.command == 'set-password':

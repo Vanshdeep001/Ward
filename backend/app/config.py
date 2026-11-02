@@ -75,6 +75,15 @@ class Settings:
     allow_signup: bool = field(default_factory=lambda: _env('WARD_ALLOW_SIGNUP', 'true').lower() == 'true')
     telegram_token: str | None = field(default_factory=lambda: os.getenv('WARD_TELEGRAM_TOKEN'))
     telegram_chat_id: str | None = field(default_factory=lambda: os.getenv('WARD_TELEGRAM_CHAT_ID'))
+    # Email alerts over SMTP. Gmail: smtp.gmail.com, port 587, your address, and an App Password (not your
+    # normal password). WARD_ALERT_EMAILS is a comma-separated list; empty means every administrator.
+    smtp_host: str | None = field(default_factory=lambda: os.getenv('WARD_SMTP_HOST') or None)
+    smtp_port: int = field(default_factory=lambda: int(_env('WARD_SMTP_PORT', '587')))
+    smtp_username: str | None = field(default_factory=lambda: os.getenv('WARD_SMTP_USERNAME') or None)
+    smtp_password: str | None = field(default_factory=lambda: os.getenv('WARD_SMTP_PASSWORD') or None)
+    smtp_from: str | None = field(default_factory=lambda: os.getenv('WARD_SMTP_FROM') or None)
+    alert_emails: tuple[str, ...] = field(default_factory=lambda: tuple(
+        e.strip() for e in os.getenv('WARD_ALERT_EMAILS', '').split(',') if e.strip()))
     cors_origins: tuple[str, ...] = field(
         default_factory=lambda: tuple(_env('WARD_CORS_ORIGINS', 'http://localhost:5173').split(','))
     )

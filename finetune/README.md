@@ -9,6 +9,106 @@ and what it costs.
 
 ---
 
+## Where this stands (2026-10-28)
+
+| Step | State |
+|---|---|
+| Seed rules | **Done.** 200 hand-written seeds over 7 families (v1 had 69). |
+| Synthetic data | **Done.** 2,099 rules → 2,099 candidates → 2,099 verified pairs (100% pass). |
+| Splits | **Done, frozen.** v2: 1,254 / 224 / 621 rows. Grouped by seed rule, and the holdout hasn't been opened. |
+| v1 training | **Done.** Qwen2.5-Coder-1.5B + QLoRA on Colab, 287 training rows. Verified correct on val: 91.6%. |
+| v2 training | **Done.** Same base model, 1,254 training rows. Verified correct on val: **97.8%**, exact match 96.9%. |
+| Comparison on val | **Done.** Templates 62.9%, gpt-oss-120b zero-shot 32.1%, fine-tuned 1.5B 97.8% (§7). |
+| GGUF export | **Done.** `q8_0` (1.6 GB) and `q4_k_m` (1.0 GB) are on the Hub as `vansh-deep/ward-compiler-1.5b-v2-gguf` and downloaded to `models/`. |
+| Ollama | **Done.** Registered as `ward-compiler` (q8) and `ward-compiler-q4`. On the first 20 val rows each scores 19/20, at 7.6 s/rule (q8) and 5.0 s/rule (q4) on the laptop CPU. |
+| Wired into Ward | **Partly.** `backend/.env` points `WARD_LLM_URL` at Ollama, but `WARD_COMPILER` isn't set, so the backend still runs `templates` mode. To switch, set `WARD_COMPILER=hybrid` or `llm`. |
+| 7B run | **Not started.** |
+| Base-model baseline (`--no-adapter`) | **Not started.** |
+| Holdout evaluation | **Not started.** It stays locked until Phase 9. |
+
+---
+
+## Folders
+
+```
+finetune/
+  configs/            qlora_t4.yaml (T4 / fp16, the one actually used), qlora_v1.yaml (bf16, A40/4090/A100)
+  data/
+    seeds/            rules_seed.jsonl — the 200 hand-written seeds (v2); rules_seed_v1.jsonl — the 69 v1 seeds
+    generated/        rules_expanded.jsonl (2,099 rules), candidates.jsonl (2,099 policies), failed.jsonl (empty)   [not in git]
+    verified/         pairs.jsonl — 2,099 rule/policy pairs the verifier passed                                    [not in git]
+    splits/           train / val / test_holdout.jsonl — v2, chat format, what v2 was trained on
+    splits_v1/        the exact v1 split, restored from commit 465cac4 — do not edit
+  models/             the two GGUF files Ollama loads                                                               [not in git]
+  ollama/             Modelfile.q8, Modelfile.q4
+  results/            eval_runs.csv, preds_*.jsonl, compare_val_*.md
+  examples/           try_rules.txt — sentences for trying the model by hand
+  scripts/            the numbered pipeline, below
+```
+
+`generated/`, `verified/` and `models/` are in `.gitignore`. The first two are rebuilt in about two
+minutes by `01`–`03`. The models are downloaded from the Hub (§6). `data/splits/preds_v2.jsonl` is an
+accidental copy of `results/preds_v2.jsonl` (the two are byte-identical) and can be deleted.
+
+### What a row looks like at each stage
+
+| Stage | File | Fields |
+|---|---|---|
+| Seed | `seeds/rules_seed.jsonl` | `id` (e.g. `rt-01`), `family`, `english`, `intent` |
+| Expanded | `generated/rules_expanded.jsonl` | `id` (`rt-01-00003`), `group` (= seed id), `family`, `english`, `intent`, `source` (`seed` or `template`) |
+| Candidate | `generated/candidates.jsonl` | the above + `policy_yaml`, `teacher` |
+| Verified | `verified/pairs.jsonl` | the above + `verified`, `fixtures` (5 per rule) |
+| Split | `splits/*.jsonl` | `messages` (system / user / assistant, Qwen chat format) + `meta` (id, group, family, teacher, intent, english) |
+
+The user message is `RULE: <english>` followed by `REFERENCE:`, which holds short documentation for
+the resource and filter the rule needs. The assistant message is the policy YAML alone, with no
+explanation and no code fences. `scripts/prompting.py` builds the prompt, and the backend has a copy of
+it in `backend/app/compiler/prompt.py`. A test fails if the two ever differ.
+
+### The seven families
+
+| Family | Seeds | What the rule says |
+|---|---|---|
+| `ec2-runtime` | 40 | No instance (or GPU instance) runs longer than N hours |
+| `require-tag` | 34 | Instances must carry a given tag |
+| `sg-open-port` | 30 | No security group opens port N to the internet (IPv4 or IPv6) |
+| `ebs-unattached` | 28 | Volumes unattached for more than N days are flagged |
+| `instance-type` | 28 | Only these instance types are allowed |
+| `region` | 22 | Nothing runs outside these regions |
+| `rds-public` | 18 | No publicly accessible database |
+
+---
+
+## Scripts and libraries
+
+| Script | Runs on | Does |
+|---|---|---|
+| `01_expand_rules.py` | laptop | Seeds → paraphrases and parameter/resource variants, each written from its intent |
+| `02_generate.py` | laptop | A teacher writes a policy per rule: `intent` (default, used for v2), `templates` (v1), or `api` |
+| `03_verify.py` | laptop | Runs each candidate through Ward's verifier (Cloud Custodian, in memory). Failures go to `failed.jsonl` |
+| `04_build_dataset.py` | laptop | Chat format, group split, stratified by family. `--extend-from` / `--keep-from` pin earlier splits |
+| `05_train_qlora.py` | Kaggle / Colab GPU | 4-bit QLoRA fine-tune from a YAML config |
+| `06_evaluate.py` | GPU (`generate`) / laptop (`score`) | Generate predictions from an adapter or any OpenAI-compatible URL, then grade them with the verifier |
+| `07_serve.py` | laptop | Serves the adapter over an OpenAI-compatible API on :8001 (slow on CPU, replaced by Ollama) |
+| `08_compare.py` | laptop | Every compiler on one split, one table → `results/compare_<split>_<time>.md` |
+| `09_export_gguf.py` | Colab | Merge adapter → GGUF → quantize → upload to the Hub |
+| `generate.py` | laptop | Try the model on your own sentences. Includes the keyword gate |
+| `prompting.py` | — | The training prompt and `looks_like_rule`, shared by the scripts above |
+
+Libraries:
+
+- **Data steps (`01`–`04`, `08`):** the standard library, PyYAML, and Ward's backend (`c7n`, `boto3`
+  shapes), imported from `../backend`.
+- **Training, GPU generation and export (`05`, `06 --mode generate`, `07`, `09`):** `torch`,
+  `transformers`, `peft`, `trl`, `bitsandbytes`, `accelerate`, `datasets`, `huggingface_hub`, and
+  llama.cpp's converter. Install these only on the GPU machine.
+
+There is no classifier library (no scikit-learn or similar) anywhere in the repo. The model is a
+generator: it writes YAML. Deciding whether a sentence is a rule at all happens in front of it (§7,
+"Sentences that are not rules").
+
+---
+
 ## 0. Your hardware, and what it means
 
 Measured on the development laptop:
@@ -91,6 +191,23 @@ which sets `fp16: true`, `bf16: false`, and `max_seq_length: 1024`.
 Train both sizes. The 1.5B costs almost nothing extra, gives the report a size-scaling curve, and
 means your demo can run entirely offline on the laptop through `llama.cpp`.
 
+**So far only the 1.5B has been trained** (v1 and v2, both on `configs/qlora_t4.yaml`: 4-bit NF4, LoRA
+r=16 / α=32 on all attention and MLP projections, 3 epochs, effective batch 16, lr 2e-4 cosine, fp16).
+The v2 adapter is `vansh-deep/ward-compiler-1.5b-v2` on the Hugging Face Hub.
+
+### Every model in the project, and what it does
+
+| Model | Where it runs | Used for |
+|---|---|---|
+| **Qwen2.5-Coder-1.5B-Instruct + Ward adapter (v2)** | Ollama on the laptop (GGUF q8 / q4) | The compiler: English rule → Cloud Custodian YAML |
+| Qwen2.5-Coder-7B-Instruct | — | Planned main result, not trained yet |
+| `openai/gpt-oss-120b` | Groq API (`WARD_RAG_LLM_*`) | The zero-shot baseline in §7. In the backend it also powers the router (rule / question / other) and writes Ask Ward's answers |
+| `qwen/qwen3.8-27b` | API | Judge for the RAG evaluation (faithfulness, relevance). It's a different model from the one that writes the answers, so it isn't grading its own output |
+| `llama-text-embed-v2` | Pinecone (hosted) | Embeddings for Ask Ward's search over the account's resources |
+| `bge-reranker-v2-m3` | Pinecone (hosted) | Re-orders the search results |
+| BM25 keyword index | backend, local | Search fallback when no Pinecone key is set |
+| Template compiler | backend, no model | The baseline that the other compilers have to beat |
+
 ---
 
 ## 3. The dataset
@@ -138,6 +255,33 @@ test is leakage; the model has effectively seen the answer. `04_build_dataset.py
 `(family, resource)` and splits whole groups, 60/10/30.
 
 The 30% holdout goes to `data/splits/test_holdout.jsonl` and **is not opened until Phase 9**.
+
+### The split as built
+
+| Split | v1 rows | v1 groups | v2 rows | v2 groups | v2 share of rows |
+|---|---|---|---|---|---|
+| train | 287 | 28 | 1,254 | 118 | 59.7% |
+| val | 71 | 7 | 224 | 20 | 10.7% |
+| test_holdout | 115 | 11 | 621 | 58 | 29.6% |
+
+v2 rows per family:
+
+| Family | train | val | holdout |
+|---|---|---|---|
+| ec2-runtime | 288 | 48 | 144 |
+| require-tag | 240 | 36 | 132 |
+| sg-open-port | 216 | 36 | 105 |
+| ebs-unattached | 195 | 36 | 95 |
+| instance-type | 176 | 36 | 85 |
+| region | 119 | 31 | 56 |
+| rds-public | 20 | **1** | 4 |
+
+`rds-public` is thin because the intent has no parameter to vary, so its seeds expand into few
+variants. Its 100% on val is one example, so don't report it as a family-level result.
+
+v2 was built with `--extend-from data/splits_v1`, so every v1 group stayed in the split it was in. The
+split is deterministic: each family is shuffled by its own name-seeded generator. See
+`data/splits/README.md` before rebuilding anything.
 
 ---
 
@@ -225,8 +369,11 @@ estimate), 4–6 h for the 7B. Then on the laptop:
 python scripts/06_evaluate.py --mode score --preds results/preds_val_v2.jsonl --record v2-1.5b
 ```
 
-Download the adapter (~100 MB) and commit it under `adapters/ward-compiler-v1/`. The base model stays
-in the cloud; the adapter is the only artefact you keep.
+Push the adapter (~100 MB) to the Hugging Face Hub; v2 is at `vansh-deep/ward-compiler-1.5b-v2`. The
+base model stays in the cloud, and the adapter is the only artefact you keep.
+
+**Result:** 219/224 verified correct (97.8%), up from v1's 91.6% on its own 71-row val. Recorded in
+`results/eval_runs.csv`, with predictions in `results/preds_v2.jsonl`.
 
 ---
 
@@ -294,6 +441,18 @@ python 06_evaluate.py --mode score --preds ../results/preds_val_q4.jsonl --recor
 
 Compare with the v2 compile rate from the GPU run. Use q4 only if it scores within a point or two of q8.
 
+**Measured so far** (`--limit 20`, the first 20 val rows: `results/preds_q8_20.jsonl`,
+`preds_q4_20.jsonl`):
+
+| | Verified correct | Per rule (i5-1235U) |
+|---|---|---|
+| q8_0 | 19/20 | 7.6 s |
+| q4_k_m | 19/20 | 5.0 s |
+
+Both miss the same rule the GPU run missed ("GPU boxes are for short experiments, not overnight runs").
+These 20 rows come from only 2 groups, so this shows quantization didn't break the model. It doesn't
+measure accuracy. Run the full 224 rows before choosing q4.
+
 **D. Point Ward at it** — `backend/.env`, then restart the backend (07_serve.py is no longer needed):
 
 ```
@@ -322,6 +481,22 @@ python scripts/08_compare.py --preds finetuned=results/preds_v2.jsonl --preds ba
 
 The table goes to `results/compare_<split>_<time>.md`. Run it on val while things still change, and on
 `test_holdout.jsonl` once, at the end, for the report.
+
+**Val results so far** (`results/compare_val_20260928-2203.md`, 224 rules, 20 groups):
+
+| System | Params | Verified correct | Exact match | Per rule | Offline |
+|---|---|---|---|---|---|
+| templates | — | 62.9% (141) | 62.5% | 0.00 s | yes |
+| gpt-oss-120b, zero-shot | 120B | 32.1% (72) | 0.0% | 2.06 s | no |
+| **Qwen2.5-Coder-1.5B + Ward adapter** | 1.5B | **97.8% (219)** | 96.9% | — | yes |
+
+The zero-shot model fails mostly on form: a missing `policies:` list, or filters that Custodian's
+schema rejects. The templates fail on wording they have no pattern for ("half a day", "GPU box").
+
+Read the 97.8% with two caveats. Val has only 20 independent groups. And the val sentences come from
+the same paraphrase generator as train, so they test new parameter values and new seeds, but not
+truly new ways of phrasing a rule. The holdout has the same limitation. A small set of hand-written,
+never-templated sentences would be the honest test of generalisation.
 
 ### Sentences that are not rules
 
@@ -353,4 +528,12 @@ The comparison that matters for the report:
 | **7B fine-tuned + RAG** | | self-hosted |
 | 1.5B fine-tuned + RAG | | self-hosted |
 
-All measured on the same locked holdout, with the verifier as the judge.
+All measured on the same locked holdout, with the verifier as the judge. The cells stay empty until
+Phase 9. The val figures are in §7.
+
+Runs recorded so far (`results/eval_runs.csv`):
+
+| Date | Run | Val rows | Groups | Verified correct | Exact match |
+|---|---|---|---|---|---|
+| 2026-09-27 | v1-1.5b | 71 | 7 | 91.6% | 64.8% |
+| 2026-09-28 | v2-1.5b | 224 | 20 | 97.8% | 96.9% |

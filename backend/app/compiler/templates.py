@@ -32,7 +32,20 @@ _WORD_DURATIONS = {'an hour': 1, 'a hour': 1, 'half a day': 12, 'a day': 24, 'a 
 _MINUTES = r'(\d+(?:\.\d+)?)\s*(minutes?|mins?)\b'
 
 
+_NUMBER_WORDS = {'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9,
+                 'ten': 10, 'eleven': 11, 'twelve': 12, 'fifteen': 15, 'eighteen': 18, 'twenty': 20,
+                 'twenty-four': 24, 'twenty four': 24, 'thirty': 30, 'forty-eight': 48, 'forty eight': 48}
+
+
+def _digits(text: str) -> str:
+    """'after three hours' → 'after 3 hours', so every duration pattern below reads number words too."""
+    words = '|'.join(sorted(map(re.escape, _NUMBER_WORDS), key=len, reverse=True))
+    return re.sub(rf'\b({words})\b(?=\s*(?:hours?|hrs?|days?|minutes?|mins?)\b)',
+                  lambda m: str(_NUMBER_WORDS[m.group(1)]), text)
+
+
 def _duration_hours(text: str) -> float | None:
+    text = _digits(text)
     if match := re.search(_HOURS, text):
         return float(match.group(1))
     if match := re.search(_MINUTES, text):
@@ -97,9 +110,31 @@ def _instance_type(text: str, english: str) -> Draft | None:
     )
 
 
+_RUN_WORDS = ('run', 'runs', 'running', 'runtime', 'uptime')
+
+
+def _about_running(text: str) -> bool:
+    """Is this sentence about how long instances stay on?
+
+    Accepts the words people actually type: a typo of "running" ("rnning", "runing"), and sentences that
+    never say "run" at all but put an instance, an action or a comparison next to a duration — "shut down
+    GPU instances after three hours", "no server should stay on past a day".
+    """
+    if re.search(r'\b(run|running|runs|runtime|uptime|left on|still on|stays? on|stay up|kept on)\b|\bup for\b', text):
+        return True
+    from difflib import SequenceMatcher
+
+    for token in re.findall(r'[a-z]{4,}', text):
+        if token[0] in 'ru' and max(SequenceMatcher(None, token, w).ratio() for w in _RUN_WORDS) >= 0.8:
+            return True
+    instance = r'\b(instances?|servers?|box(?:es)?|machines?|vms?|ec2|gpus?)\b'
+    trigger = r'\b(stop|shut\s*down|shutdown|kill|terminate|turn off|after|longer than|more than|past|beyond|over)\b'
+    return bool(re.search(instance, text) and re.search(trigger, text) and _duration_hours(text) is not None)
+
+
 def _runtime(text: str, english: str) -> Draft | None:
     """'No GPU instance runs more than 6 hours' — the canonical cost rule."""
-    if not re.search(r'\b(run|running|runs|runtime|uptime|left on|still on)\b|\bup for\b', text):
+    if not _about_running(text):
         return None
     if re.search(r'\b(volume|volumes|disk|disks|unattached|detached)\b', text):
         return None  # that is a storage rule, whatever it says about days
