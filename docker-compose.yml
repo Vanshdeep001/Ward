@@ -1,0 +1,100 @@
+# Ward local development stack
+# Brings up PostgreSQL, Redis, and Qdrant alongside the backend and frontend.
+#
+# Usage:
+#   docker compose up          # start everything
+#   docker compose up -d       # start in background
+#   docker compose down -v     # stop and remove volumes
+#
+# The backend reads WARD_DATABASE_URL from its .env; set it to:
+#   postgresql+psycopg://ward:ward@localhost:5432/ward
+# to switch from the default SQLite to the Postgres instance below.
+
+services:
+
+  # ── Relational store ──────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ward
+      POSTGRES_PASSWORD: ward
+      POSTGRES_DB: ward
+    ports:
+      - "5433:5432"       # 5433 on the host so it does not clash with a local Postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ward"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Cache / message broker ─────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6380:6379"       # 6380 on the host so it does not clash with a local Redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Vector database (RAG) ──────────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    ports:
+      - "6333:6333"       # REST API
+      - "6334:6334"       # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI backend ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: ./backend/.env
+    environment:
+      WARD_DATABASE_URL: "postgresql+psycopg://ward:ward@postgres:5432/ward"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app        # hot-reload in dev
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ── React / Vite frontend ──────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules      # keep the container's node_modules isolated
+
+volumes:
+  postgres_data:
+  qdrant_data:
+
